@@ -1,0 +1,172 @@
+#define UNO_PERIPHERAL_ADDR 0X08
+
+//Commands
+#define REQ_PROXIMITY_STATE_CMD 0x01     //Requesting the state of the proximity sensors attached to the uno
+#define REQ_DIRECTION_TO_DRIVE_CMD 0x02  //Requesting the determination of which direction to drive next (based on obstacles in front)
+#define SENDING_OBSTACLES_CMD 0x03       //About to start sending obstacles
+#define NEXT_OBSTACLE_CMD 0x04           //The next obstacle in the list
+
+//Data definitions
+#define FRONT_LEFT_PROX_BIT 0
+#define FRONT_RIGHT_PROX_BIT 1
+#define REAR_LEFT_PROX_BIT 2
+#define REAR_RIGHT_PROX_BIT 3
+
+#define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
+
+struct DirectionData {
+  uint16_t directionToDrive;
+};
+
+struct ObstacleData {
+  int8_t relDirection;   //Direction relative to the current compass heading of the centre of the obstacle
+  uint8_t width;         //The width in degrees of view of the obstacle in front
+  uint16_t avgDistance;  //How far away the obstacle is
+};
+
+struct ObstaclesCmd {
+  uint16_t currentCompassDirn;   //Current compass direction (i.e. straightahead)
+  uint8_t numOfObstaclesToSend;  //Number of obstacles found that are to be sent for analysis
+};
+
+uint8_t proximityState = 255;  //Invalid state
+
+bool unoQAvailable = true;
+
+ObstaclesCmd obstaclesCmd;
+ObstacleData obstacle;
+DirectionData direction = { 0 };
+
+bool waitForResponse() {
+  unsigned long waitingTime = 0;
+  while (Wire.available() == 0 && waitingTime < 1000) {
+    //Wait for response;
+    delay(10);
+    waitingTime += 50;
+  }
+  return Wire.available() != 0;
+}
+
+uint8_t getProximityState() {
+  //Send command to peri uno to get status of all proximity sensors
+
+  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+  Wire.write(REQ_PROXIMITY_STATE_CMD);
+  Wire.endTransmission();
+  //Request data
+  Wire.requestFrom(UNO_PERIPHERAL_ADDR, 1);
+  if (waitForResponse()) {
+    unoQAvailable = true;
+    proximityState = Wire.read();
+    // if (Serial) {
+    //   Serial.print("Rx proximity state: ");
+    //   Serial.println(proximityState);  // print the character
+    //   Serial.print("Front Left: ");
+    //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
+    //   Serial.print(" Front Right: ");
+    //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
+    //   Serial.print(" Rear Left: ");
+    //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
+    //   Serial.print(" Rear Right: ");
+    //   Serial.println((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+    // }
+    if (Wire.available() > 0) {
+      if (Serial) {
+        Serial.print("Still have bytes to read?? : ");
+        Serial.println(Wire.available());
+      }
+      while (Wire.available() > 0) Serial.print(Wire.read());
+      Serial.println();
+    }
+  } else {
+    if (Serial) {
+      Serial.println("Timed out from UnoQ");
+      unoQAvailable = false;
+    }
+  }
+}
+
+bool checkFrontRightProximity(uint8_t status) {
+  return (status & FRONT_RIGHT_PROX_BIT);
+}
+
+bool getFrontRightProximity() {
+  uint8_t status = getProximityState();
+  return checkFrontRightProximity;
+}
+
+bool checkFrontLeftProximity(uint8_t status) {
+  return (status & FRONT_LEFT_PROX_BIT);
+}
+
+bool getFrontLeftProximity() {
+  uint8_t status = getProximityState();
+  return checkFrontLeftProximity;
+}
+
+bool checkFrontProximity(uint8_t status) {
+  return (status & FRONT_LEFT_PROX_BIT) || (status & FRONT_RIGHT_PROX_BIT);
+}
+
+bool getFrontProximity() {
+  uint8_t status = getProximityState();
+  return checkFrontProximity(status);
+}
+
+bool getRearRightProximity() {
+  uint8_t status = getProximityState();
+  return status & REAR_RIGHT_PROX_BIT;
+}
+
+bool getRearLeftProximity() {
+  uint8_t status = getProximityState();
+  return status & REAR_LEFT_PROX_BIT;
+}
+
+bool getRearProximity() {
+  uint8_t status = getProximityState();
+  return (status & REAR_LEFT_PROX_BIT) || (status & REAR_RIGHT_PROX_BIT);
+}
+
+void sendObstacles(uint16_t heading) {
+  Serial.println("Sending obstacle cmd...");
+  obstaclesCmd.currentCompassDirn = heading;
+  obstaclesCmd.numOfObstaclesToSend = MAX_NUMBER_OF_OBJECTS_IN_SWEEP;
+  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+  Wire.write(SENDING_OBSTACLES_CMD);
+  Wire.write((byte *)&obstaclesCmd, sizeof(obstaclesCmd));
+  Wire.endTransmission();
+  Serial.println("Sending obstacles");
+  //Now send each obstacle
+  for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
+    obstacle.relDirection = 90 - ((i + 2) * 5);
+    obstacle.width = i;
+    obstacle.avgDistance = i * 10;
+    Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+    Wire.write(NEXT_OBSTACLE_CMD);
+    Wire.write((byte *)&obstacle, sizeof(obstacle));
+    Wire.endTransmission();
+    // Serial.print("Sent obstacle ");
+    // Serial.println(i);
+  }
+}
+
+void getDirectionToDrive() {
+  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+  Wire.write(REQ_DIRECTION_TO_DRIVE_CMD);
+  Wire.endTransmission();
+  //Request data
+  Wire.requestFrom(UNO_PERIPHERAL_ADDR, 2);
+  if (waitForResponse()) {
+
+    Wire.readBytes((byte *)&direction, sizeof(direction));
+    if (Serial) {
+      Serial.print("Received direction to drive: ");
+      Serial.println(direction.directionToDrive);
+    }
+  } else {
+    if (Serial) Serial.println("Timed out waiting for response from Uno peri for direction");
+  }
+}
+
+
