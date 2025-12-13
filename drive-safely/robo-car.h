@@ -1,8 +1,8 @@
 #define LOOP_TIME 50
 #define NUMBER_OF_ANGLES_IN_SWEEP 180  //Number of samples to take in a sweep
 #define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
-#define MIN_DISTANCE_TO_MOVE 30  //Dont get any closer than this
-#define MIN_DISTANCE_TO_TURN 20  //If we have less than this around then we can't rotate
+#define MIN_DISTANCE_TO_MOVE 20  //Dont get any closer than this
+#define MIN_DISTANCE_TO_TURN 10  //If we have less than this around then we can't rotate
 
 enum Robot_State {
   INIT,

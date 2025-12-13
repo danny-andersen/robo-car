@@ -130,7 +130,6 @@ void rotateTo(int16_t directionRequired) {
   float yaw = eulerDeg[0];  //Before we work out which direction to turn, remember what straightahead is
   float diff = normalise(directionRequired - yaw);
   float initialYaw = yaw;
-  unsigned long timer = 0;
   // if (Serial) {
   //   Serial.print("Rotating to: ");
   //   Serial.print(directionRequired);
@@ -138,7 +137,9 @@ void rotateTo(int16_t directionRequired) {
   //   Serial.println(yaw);
   // }
 
-  // if ((directionRequired > yaw && (directionRequired - yaw) < 180) || (directionRequired < yaw && (directionRequired - yaw) >= 180)) {
+  long timer = 0;
+  long backTimer = 0;
+  long forwardTimer = 0;
   if (diff > 0) {
     //Rotate right
     driveMotor(ROTATE_RIGHT, 75, 75);
@@ -156,18 +157,47 @@ void rotateTo(int16_t directionRequired) {
       // }
       //Check for obstacles when turning
       uint8_t proximity = getProximityState();
+      if (checkFrontRightProximity(proximity) && checkRearLeftProximity(proximity)) {
+        //We cant rotate this way
+        //Try the other way
+        diff = -diff;
+        backTimer = 0;
+        forwardTimer = 0;
+        timer = 0;
+        break;
+      }
       if (checkFrontRightProximity(proximity)) {
         //Cant rotate - need to back up a bit before rotating
-        driveMotor(BACK, 75, 75);
+        if (forwardTimer > 0) {
+          //We dont have much room to the rear, only back up until obstruction gone
+          backTimer = 50;
+        } else {
+          backTimer = 200;
+        }
+        forwardTimer = 0;
       } else if (checkRearLeftProximity(proximity)) {
         //Cant rotate - need to go forward a bit before rotating
+        if (backTimer > 0) {
+          //Dont have much room to the front, only go forward until obstruction gone
+          forwardTimer = 50;
+        } else {
+          forwardTimer = 200;
+        }
+        backTimer = 0;
+      }
+      if (backTimer > 0) {
+        driveMotor(BACK, 75, 75);
+        backTimer -= 50;
+      } else if (forwardTimer >= 0) {
         driveMotor(FORWARD, 75, 75);
+        forwardTimer -= 50;
       } else {
         driveMotor(ROTATE_RIGHT, 75, 75);
       }
       // } while (timer <= 5000 && ((directionRequired > yaw) && ((directionRequired - yaw) < 180)) || ((directionRequired < yaw) && ((directionRequired - yaw) >= 180)));
-    } while (diff > 0);
-  } else if (diff < 0) {
+    } while (diff > 0 && timer < 5000);
+  }
+  if (diff < 0) {
     //Rotate left
     driveMotor(ROTATE_LEFT, 75, 75);
     do {
@@ -185,17 +215,41 @@ void rotateTo(int16_t directionRequired) {
       // }
       //Check for obstacles when turning
       uint8_t proximity = getProximityState();
+      if (checkFrontLeftProximity(proximity) && checkRearRightProximity(proximity)) {
+        //We are stuck - stop
+        break;
+      }
       if (checkFrontLeftProximity(proximity)) {
         //Cant rotate - need to back up a bit before rotating
-        driveMotor(BACK, 75, 75);
-      } else if (checkRearRightProximity(proximity)) {
+        if (forwardTimer > 0) {
+          //We dont have much room to the rear, only back up until obstruction gone
+          backTimer = 50;
+        } else {
+          backTimer = 200;
+        }
+        forwardTimer = 0;
+    }
+    else if (checkRearRightProximity(proximity)) {
         //Cant rotate - need to go forward a bit before rotating
+        if (backTimer > 0) {
+          //Dont have much room to the front, only go forward until obstruction gone
+          forwardTimer = 50;
+        } else {
+          forwardTimer = 200;
+        }
+        backTimer = 0;
+    }
+    if (backTimer > 0) {
+        driveMotor(BACK, 75, 75);
+        backTimer -= 50;
+    } else if (forwardTimer >= 0) {
         driveMotor(FORWARD, 75, 75);
-      } else {
+        forwardTimer -= 50;
+    } else {
         driveMotor(ROTATE_LEFT, 75, 75);
-      }
+    }
       // } while (timer <= 5000 && ((directionRequired < yaw) && ((directionRequired - yaw) < 180)) || ((directionRequired > yaw) && ((directionRequired - yaw) >= 180)));
-    } while (diff < 0);
+    } while (diff < 0 && timer < 5000);
   }
   driveMotor(STOP, 0, 0);
 }
@@ -210,7 +264,7 @@ void drive(Motor_Direction direction, float straightAheadRad, uint8_t speed) {
     getAccelerometerEuler();  //Note that if this fails, as no more recent data received, then we just use the last calculated value
     float currentYaw = euler[0];
     //To avoid issues when the we are around 180 deg from the original direction
-    //We need to normalise the yaw 
+    //We need to normalise the yaw
     straightAheadRad = normalise_rad(straightAheadRad);
     currentYaw = normalise_rad(currentYaw);
     // if (straightAheadRad > HALF_PI) {

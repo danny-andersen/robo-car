@@ -25,7 +25,7 @@ uint8_t proximitySensors = 0;
 
 
 void setup() {
-  // Serial.begin(9600);
+  Serial.begin(9600);
   // Start I²C bus
   Wire.begin();
   delay(3000);  //Let everything settle before initialising accelerometer

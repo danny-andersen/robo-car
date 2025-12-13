@@ -47,7 +47,7 @@ void sweep(uint16_t *distances) {
   //Sweep right
   for (int a = SERVO_CENTRE; a >= 0; a--) {
     servo.write(a);
-    delay(20);
+    delay(10);
     measured = HCSR04.measureDistanceCm();
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) measured[0] = 200;
     distances[a] = measured[0];
@@ -55,7 +55,7 @@ void sweep(uint16_t *distances) {
   //Sweep left, re-measuring and averaging what we have so far
   for(int a = 0; a <= SERVO_CENTRE; a++) {
     servo.write(a);
-    delay(20);
+    delay(10);
     measured = HCSR04.measureDistanceCm();
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) measured[0] = 200;
     distances[a] = (distances[a] + measured[0]) / 2;
@@ -63,7 +63,7 @@ void sweep(uint16_t *distances) {
   //Continue sweeping left
   for (int a = SERVO_CENTRE; a < 180; a++) {
     servo.write(a);
-    delay(20);
+    delay(10);
     measured = HCSR04.measureDistanceCm();
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) measured[0] = 200;
     distances[a] = measured[0];
@@ -71,7 +71,7 @@ void sweep(uint16_t *distances) {
   //Sweep right back to centre
   for (int a = 179; a >= 90; a--) {
     servo.write(a);
-    delay(20);
+    delay(10);
     measured = HCSR04.measureDistanceCm();
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) measured[0] = 200;
     distances[a] = (distances[a] + measured[0]) / 2;
