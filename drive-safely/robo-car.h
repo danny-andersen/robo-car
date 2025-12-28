@@ -11,7 +11,8 @@ enum Robot_State {
   ROTATING,
   SWEEP,
   UTURN_SWEEP,
-  BACK_OUT
+  BACK_OUT,
+  OFF_GROUND,
 };
 
 enum Drive_State {

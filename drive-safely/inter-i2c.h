@@ -58,7 +58,7 @@ uint8_t getProximityState() {
   Wire.endTransmission();
   //Request data
   Wire.requestFrom(UNO_PERIPHERAL_ADDR, 1);
-  uint8_t proximityState = 255;  //Invalid state
+  uint8_t proximityState = 0x80;  //Invalid state
   if (waitForResponse()) {
     unoQAvailable = true;
     proximityState = Wire.read();

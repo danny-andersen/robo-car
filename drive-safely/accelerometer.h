@@ -89,6 +89,13 @@ bool getAccelerometerEuler() {
   }
 }
 
+bool rollingOrPitching() {
+  float currentRoll = euler[1];
+  float currentPitch = euler[2];
+
+  return (abs(currentRoll) >= 5 || abs(currentPitch) >= 5);
+}
+
 bool getAccelerometerAllReading() {
   if (mpu.dmpGetCurrentFIFOPacket(FIFOBuffer)) {
     mpu.dmpGetQuaternion(&q, FIFOBuffer);

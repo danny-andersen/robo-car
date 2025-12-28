@@ -1,3 +1,4 @@
+#include "ground-tracking.h"
 #include "compass.h"
 #include "accelerometer.h"
 #include "inter-i2c.h"
@@ -26,13 +27,14 @@ uint8_t proximitySensors = 0;
 
 void setup() {
   Serial.begin(9600);
+  groundTrackingInit();
   // Start I²C bus
   Wire.begin();
   delay(3000);  //Let everything settle before initialising accelerometer
   compassReady = compass_init();
   if (Serial) {
     if (compassReady) {
-      currentHeading = getHeading();  
+      currentHeading = getHeading();
       Serial.print("Compass: ");
       Serial.println(currentHeading);
     } else {
@@ -60,23 +62,41 @@ void setup() {
   if (!unoQAvailable) {
     if (Serial) Serial.print("Peripheral Uno not ready");
   }
+  delay(1000);
 }
 
 // 1. Sweep the area forward and find the furthest distance; if multiple > 200 cm (max reliable distance) then choose one at random
 // 2. Rotate car to that direction
 // 3. Drive in that direction
-// 4. Keep driving and checking distance until obstacle in front is < 10cm
+// 4. Keep driving and checking distance until obstacle in front is < 20cm
 // 5  Goto (1).
 
 void loop() {
+  if (leftGround()) {
+    if (Serial) Serial.println("Left ground!");
+    currentState = OFF_GROUND;
+  } else if (currentState == OFF_GROUND) {
+    //Back on the ground - restart from beginning
+    delay(3000);
+    accelerometerReady = accelerometer_init();
+    currentState = SWEEP;
+  }
   if (Serial) {
     Serial.print("STATE: ");
     Serial.println(currentState);
   }
-  getAccelerometerEuler();
+  getAccelerometerEuler();            //Note that if this fails, as no more recent data received, then we just use the last calculated value
   currentDirectionDeg = eulerDeg[0];  //Remember what straightahead is
   currentDirectionRad = euler[0];
 
+  if (  ()) {
+    //We have run into something or have run over something
+    if (currentState == DRIVE) {
+      drive(STOP, currentDirectionRad, 0);
+      backOut();
+      currentState = SWEEP;
+    }
+  }
   switch (currentState) {
     case SWEEP:
       currentState = sweepAndFindDirection();
@@ -95,10 +115,10 @@ void loop() {
       currentState = SWEEP;
       break;
     case BACK_OUT:
-      // Reverse for 1 second and do another sweep
+      // Reverse for 0.5 second, turn around and do another sweep
       if (Serial) Serial.println("Reversing");
       backOut();
-      currentState = SWEEP;
+      currentState = UTURN_SWEEP;
       break;
     case DRIVE:
       //Drive straight and scan (note that yaw should be reset)
@@ -118,6 +138,9 @@ void loop() {
       if (Serial) Serial.println("Init failed, halting...");
       drive(STOP, currentDirectionRad, 0);
       currentDriveState = STOPPED;
+      break;
+    case OFF_GROUND:
+      drive(STOP, currentDirectionRad, 0);
       break;
     default:
       if (Serial) Serial.println("In unknown state...");

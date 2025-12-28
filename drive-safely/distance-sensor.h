@@ -4,7 +4,7 @@
 #define PIN_TRIG 13  // Arduino pin tied to trigger pin on the ultrasonic sensor.
 #define PIN_ECHO 12  // Arduino pin tied to echo pin on the ultrasonic sensor.
 #define PIN_SERVO 10
-#define SERVO_CENTRE 90  //Positioned straight forward (0 is full right, 180 is full left)
+#define SERVO_CENTRE 90               //Positioned straight forward (0 is full right, 180 is full left)
 #define MAX_DISTANCE_CAN_MEASURE 200  //Anything above this distance is suspect
 
 // Struct to hold arc info, which represent objects found in the forward field of view
@@ -12,7 +12,7 @@ struct Arc {
   uint8_t startIndex;  //0 is 90 right, 180 is 90 left
   uint8_t endIndex;
   uint8_t centerIndex;
-  uint8_t width;  //of arc
+  uint8_t width;         //of arc
   uint16_t avgDistance;  //distance
 };
 
@@ -31,12 +31,12 @@ void distanceSensorInit() {
 }
 
 uint16_t clearDistanceAhead() {
-    double* measured = HCSR04.measureDistanceCm();
-    uint16_t currentDistance = (uint16_t)lrint(measured[0]);
-    return currentDistance;
+  double* measured = HCSR04.measureDistanceCm();
+  uint16_t currentDistance = (uint16_t)lrint(measured[0]);
+  return currentDistance;
 }
 
-void sweep(uint16_t *distances) {
+void sweep(uint16_t* distances) {
   bool sweepComplete = false;
   int steps = 1;
   servoPosition = SERVO_CENTRE;
@@ -51,14 +51,20 @@ void sweep(uint16_t *distances) {
     measured = HCSR04.measureDistanceCm();
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) measured[0] = 200;
     distances[a] = measured[0];
+    if (leftGround()) {
+      return;
+    }
   }
   //Sweep left, re-measuring and averaging what we have so far
-  for(int a = 0; a <= SERVO_CENTRE; a++) {
+  for (int a = 0; a <= SERVO_CENTRE; a++) {
     servo.write(a);
     delay(10);
     measured = HCSR04.measureDistanceCm();
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) measured[0] = 200;
     distances[a] = (distances[a] + measured[0]) / 2;
+    if (leftGround()) {
+      return;
+    }
   }
   //Continue sweeping left
   for (int a = SERVO_CENTRE; a < 180; a++) {
@@ -75,6 +81,9 @@ void sweep(uint16_t *distances) {
     measured = HCSR04.measureDistanceCm();
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) measured[0] = 200;
     distances[a] = (distances[a] + measured[0]) / 2;
+    if (leftGround()) {
+      return;
+    }
   }
 }
 
@@ -120,5 +129,3 @@ int findObjectsInSweep(uint16_t arr[], int size, Arc arcs[], int maxArcs) {
 
   return arcCount;  // number of arcs stored
 }
-
-
