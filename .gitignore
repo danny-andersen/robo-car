@@ -53,3 +53,7 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+#Pi Python env files
+pi-controller/venv/
+pi-controller/__pycache__/
