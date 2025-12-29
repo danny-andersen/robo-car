@@ -27,7 +27,7 @@ VectorInt16 gy;       // [x, y, z]            Gyro sensor measurements
 VectorInt16 aaReal;   // [x, y, z]            Gravity-free accel sensor measurements
 VectorFloat gravity;  // [x, y, z]            Gravity vector
 float euler[3];       // [psi, theta, phi]    Euler angle container
-float eulerDeg[3];    // Euler in degrees
+int16_t eulerDeg[3];    // Euler in degrees
 float ypr[3];         // [yaw, pitch, roll]   Yaw/Pitch/Roll container and gravity vector
 
 bool accelerometer_init() {
@@ -79,9 +79,9 @@ bool getAccelerometerEuler() {
     // mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
     mpu.dmpGetEuler(euler, &q);
     //Convert to degrees -> +90 is 90degrees to the right, -90 is 90 deg to the left
-    eulerDeg[0] = euler[0] * 180 / M_PI;
-    eulerDeg[1] = euler[1] * 180 / M_PI;
-    eulerDeg[2] = euler[2] * 180 / M_PI;
+    eulerDeg[0] = int((euler[0] * 180 / M_PI) + 0.5);
+    eulerDeg[1] = int((euler[1] * 180 / M_PI) + 0.5);
+    eulerDeg[2] = int((euler[2] * 180 / M_PI) + 0.5);
 
     return true;
   } else {
