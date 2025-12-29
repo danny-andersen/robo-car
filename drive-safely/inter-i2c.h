@@ -42,10 +42,10 @@ DirectionData direction = { 0 };
 
 bool waitForResponse() {
   unsigned long waitingTime = 0;
-  while (Wire.available() == 0 && waitingTime < 1000) {
+  while (Wire.available() == 0 && waitingTime < 500) {
     //Wait for response;
     delay(10);
-    waitingTime += 50;
+    waitingTime += 10;
   }
   return Wire.available() != 0;
 }
@@ -69,24 +69,24 @@ uint8_t getProximityState() {
     //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
     //   Serial.print(" Front Right: ");
     //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
-    //   Serial.print(" Rear Left: ");
+    //   Serial.print(" Rear Left: ");10001000
     //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
     //   Serial.print(" Rear Right: ");
     //   Serial.println((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
     // }
-    if (Wire.available() > 0) {
-      if (Serial) {
-        Serial.print("Still have bytes to read?? : ");
-        Serial.println(Wire.available());
-      }
-      while (Wire.available() > 0) Serial.print(Wire.read());
-      Serial.println();
-    }
+    // if (Wire.available() > 0) {
+    //   // if (Serial) {
+    //   //   Serial.print("Still have bytes to read?? : ");
+    //   //   Serial.println(Wire.available());
+    //   // }
+    //   while (Wire.available() > 0) Serial.print(Wire.read());
+    //   Serial.println();
+    // }
   } else {
-    if (Serial) {
-      Serial.println("Timed out from UnoQ");
-      unoQAvailable = false;
-    }
+    // if (Serial) {
+    //   Serial.println("Timed out from UnoQ");
+    //   unoQAvailable = false;
+    // }
   }
   return proximityState;
 }
@@ -147,14 +147,14 @@ bool getRearProximity() {
 
 
 void sendObstacles(uint16_t heading) {
-  Serial.println("Sending obstacle cmd...");
+  // Serial.println("Sending obstacle cmd...");
   obstaclesCmd.currentCompassDirn = heading;
   obstaclesCmd.numOfObstaclesToSend = MAX_NUMBER_OF_OBJECTS_IN_SWEEP;
   Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
   Wire.write(SENDING_OBSTACLES_CMD);
   Wire.write((byte *)&obstaclesCmd, sizeof(obstaclesCmd));
   Wire.endTransmission();
-  Serial.println("Sending obstacles");
+  // Serial.println("Sending obstacles");
   //Now send each obstacle
   for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
     obstacle.relDirection = 90 - ((i + 2) * 5);
@@ -178,13 +178,14 @@ void getDirectionToDrive() {
   if (waitForResponse()) {
 
     Wire.readBytes((byte *)&direction, sizeof(direction));
-    if (Serial) {
-      Serial.print("Received direction to drive: ");
-      Serial.println(direction.directionToDrive);
-    }
-  } else {
-    if (Serial) Serial.println("Timed out waiting for response from Uno peri for direction");
-  }
+    // if (Serial) {
+    //   Serial.print("Received direction to drive: ");
+    //   Serial.println(direction.directionToDrive);
+    // }
+  } 
+  // else {
+  //   if (Serial) Serial.println("Timed out waiting for response from Uno peri for direction");
+  // }
 }
 
 
