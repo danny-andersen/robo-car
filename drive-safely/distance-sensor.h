@@ -11,7 +11,7 @@
 struct Arc {
   uint8_t startIndex;  //0 is 90 right, 180 is 90 left
   uint8_t endIndex;
-  uint8_t centerIndex;
+  uint8_t centreDirection;
   uint8_t width;         //of arc
   uint16_t avgDistance;  //distance
 };
@@ -124,8 +124,8 @@ int findObjectsInSweep(uint16_t arr[], int size, Arc arcs[], int maxArcs) {
       arc.startIndex = start;
       arc.endIndex = i - 1;
       arc.width = count;
-      arc.centerIndex = start + count / 2;
-      arc.avgDistance = (float)sum / count;
+      arc.centreDirection = start + int((count / 2) + 0.5);
+      arc.avgDistance = int((sum / count) + 0.5);
 
       arcs[arcCount++] = arc;
     }
