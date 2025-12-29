@@ -128,15 +128,16 @@ float normalise_rad(float dirn)
   return dirn;
 }
 
-void rotateTo(int16_t directionRequired)
+bool rotateTo(int16_t directionRequired)
 {
   // Rotate the car to the direction that is required
   // 0 is straight ahead (no change)
   //-90 is 90 deg to the left
   //+90 is 90 deg to the right
   directionRequired = normalise(directionRequired);
-  float yaw = eulerDeg[0]; // Before we work out which direction to turn, remember what straightahead is
-  diff = normalise(directionRequired - yaw);
+  float yaw = eulerDeg[0]; 
+  float startingYaw = yaw; // Before we work out which direction to turn, remember what straightahead is
+  float diff = normalise(directionRequired - yaw);
   // if (Serial) {
   //   Serial.print("Rotating to: ");
   //   Serial.print(directionRequired);
@@ -165,6 +166,14 @@ void rotateTo(int16_t directionRequired)
       getAccelerometerEuler();
       yaw = eulerDeg[0];
       diff = normalise(directionRequired - yaw);
+      if (diff <= 0) break;
+      if (timer > 500) {
+        float startDiff = normalise(startingYaw - yaw);
+        if (startDiff <= 10) {
+          //We must have rotated a complete 360 - reset the gyro
+          return false;
+        }
+      }
       // if (Serial) {
       //   Serial.print("ROTATE_RIGHT Current yaw: ");
       //   Serial.print(yaw);
@@ -225,8 +234,9 @@ void rotateTo(int16_t directionRequired)
       {
         driveMotor(ROTATE_RIGHT, 75, 75);
       }
+      wdt_reset();
       // } while (timer <= 5000 && ((directionRequired > yaw) && ((directionRequired - yaw) < 180)) || ((directionRequired < yaw) && ((directionRequired - yaw) >= 180)));
-    } while (diff > 0 && timer < 5000);
+    } while (diff > 0 && timer < 3000);
   }
   if (diff < 0)
   {
@@ -244,6 +254,14 @@ void rotateTo(int16_t directionRequired)
       getAccelerometerEuler();
       yaw = eulerDeg[0];
       diff = normalise(directionRequired - yaw);
+      if (diff >= 0) break;
+      if (timer > 500) {
+        float startDiff = normalise(startingYaw - yaw);
+        if (startDiff <= 10) {
+          //We must have rotated a complete 360 - reset the gyro
+          return false;
+        }
+      }
       // if (Serial) {
       //   Serial.print("ROTATE_LEFT Current yaw: ");
       //   Serial.print(yaw);
@@ -299,10 +317,12 @@ void rotateTo(int16_t directionRequired)
       {
         driveMotor(ROTATE_LEFT, 75, 75);
       }
+      wdt_reset();
       // } while (timer <= 5000 && ((directionRequired < yaw) && ((directionRequired - yaw) < 180)) || ((directionRequired > yaw) && ((directionRequired - yaw) >= 180)));
     } while (diff < 0 && timer < 5000);
   }
   driveMotor(STOP, 0, 0);
+  return true;
 }
 
 void drive(Motor_Direction direction, float straightAheadRad, uint8_t speed)
@@ -400,6 +420,7 @@ void backOut()
       break;
     }
     delay(50);
+    wdt_reset();
     backoutTimer += 50;
   } while (backoutTimer < 500);
   drive(STOP, forwardDirection, 0);

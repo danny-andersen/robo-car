@@ -54,6 +54,7 @@ void sweep(uint16_t* distances) {
     if (leftGround()) {
       return;
     }
+    wdt_reset();
   }
   //Sweep left, re-measuring and averaging what we have so far
   for (int a = 0; a <= SERVO_CENTRE; a++) {
@@ -65,6 +66,7 @@ void sweep(uint16_t* distances) {
     if (leftGround()) {
       return;
     }
+    wdt_reset();
   }
   //Continue sweeping left
   for (int a = SERVO_CENTRE; a < 180; a++) {
@@ -73,6 +75,7 @@ void sweep(uint16_t* distances) {
     measured = HCSR04.measureDistanceCm();
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) measured[0] = 200;
     distances[a] = measured[0];
+    wdt_reset();
   }
   //Sweep right back to centre
   for (int a = 179; a >= 90; a--) {
@@ -84,6 +87,7 @@ void sweep(uint16_t* distances) {
     if (leftGround()) {
       return;
     }
+    wdt_reset();
   }
 }
 

@@ -1,3 +1,5 @@
+#include <avr/wdt.h>
+
 #include "ground-tracking.h"
 #include "compass.h"
 #include "accelerometer.h"
@@ -26,43 +28,44 @@ uint8_t proximitySensors = 0;
 
 
 void setup() {
-  Serial.begin(9600);
+  // Serial.begin(9600);
   groundTrackingInit();
   // Start I²C bus
   Wire.begin();
   delay(3000);  //Let everything settle before initialising accelerometer
   compassReady = compass_init();
-  if (Serial) {
-    if (compassReady) {
-      currentHeading = getHeading();
-      Serial.print("Compass: ");
-      Serial.println(currentHeading);
-    } else {
-      Serial.println("Compass not available");
-    }
-  }
+  // if (Serial) {
+  //   if (compassReady) {
+  //     currentHeading = getHeading();
+  //     Serial.print("Compass: ");
+  //     Serial.println(currentHeading);
+  //   } else {
+  //     Serial.println("Compass not available");
+  //   }
+  // }
   accelerometerReady = accelerometer_init();
   if (!accelerometerReady) {
-    if (Serial) Serial.print("Failed to initialise accelerometer!!");
+    // if (Serial) Serial.print("Failed to initialise accelerometer!!");
     currentState = INIT_FAILED;
   } else {
     getAccelerometerEuler();
     currentDirectionDeg = eulerDeg[0];  //Before we work out which direction to turn, remember what straightahead is
     currentState = SWEEP;
     currentHeading = getHeading();
-    if (Serial) {
-      Serial.print("Gyro straightahead = ");
-      Serial.print(currentDirectionDeg);
-    }
+    // if (Serial) {
+    //   Serial.print("Gyro straightahead = ");
+    //   Serial.print(currentDirectionDeg);
+    // }
   }
   motor_Init();
   distanceSensorInit();
   //Check to see if peripheral uno ready
   proximitySensors = getProximityState();
   if (!unoQAvailable) {
-    if (Serial) Serial.print("Peripheral Uno not ready");
+    // if (Serial) Serial.print("Peripheral Uno not ready");
   }
   delay(1000);
+  wdt_enable(WDTO_1S);
 }
 
 // 1. Sweep the area forward and find the furthest distance; if multiple > 200 cm (max reliable distance) then choose one at random
@@ -72,8 +75,9 @@ void setup() {
 // 5  Goto (1).
 
 void loop() {
+  wdt_reset();
   if (leftGround()) {
-    if (Serial) Serial.println("Left ground!");
+    // if (Serial) Serial.println("Left ground!");
     currentState = OFF_GROUND;
   } else if (currentState == OFF_GROUND) {
     //Back on the ground - restart from beginning
@@ -81,15 +85,15 @@ void loop() {
     accelerometerReady = accelerometer_init();
     currentState = SWEEP;
   }
-  if (Serial) {
-    Serial.print("STATE: ");
-    Serial.println(currentState);
-  }
+  // if (Serial) {
+  //   Serial.print("STATE: ");
+  //   Serial.println(currentState);
+  // }
   getAccelerometerEuler();            //Note that if this fails, as no more recent data received, then we just use the last calculated value
   currentDirectionDeg = eulerDeg[0];  //Remember what straightahead is
   currentDirectionRad = euler[0];
 
-  if (  ()) {
+  if (rollingOrPitching()) {
     //We have run into something or have run over something
     if (currentState == DRIVE) {
       drive(STOP, currentDirectionRad, 0);
@@ -103,20 +107,26 @@ void loop() {
       break;
     case ROTATING:
       //Rotate to that direction
-      if (Serial) Serial.println("Rotating...");
-      rotateTo(directionToDrive);  //Returns when car is pointed in the right direction
-      currentState = DRIVE;
-      lastDistanceToObstacle = 10000;
+      // if (Serial) Serial.println("Rotating...");
+      if (!rotateTo(directionToDrive)) {
+        //Something wrong with gyro as failed to find correct direction
+        accelerometerReady = accelerometer_init();
+        currentState = SWEEP;
+      } else {
+        //Returns when car is pointed in the right direction
+        currentState = DRIVE;
+        lastDistanceToObstacle = 10000;
+      }
       break;
     case UTURN_SWEEP:
       //Turn the robot around and do a sweep
-      if (Serial) Serial.println("U turn...");
+      // if (Serial) Serial.println("U turn...");
       aboutTurn();
       currentState = SWEEP;
       break;
     case BACK_OUT:
       // Reverse for 0.5 second, turn around and do another sweep
-      if (Serial) Serial.println("Reversing");
+      // if (Serial) Serial.println("Reversing");
       backOut();
       currentState = UTURN_SWEEP;
       break;
@@ -135,7 +145,7 @@ void loop() {
       break;
     case INIT_FAILED:
       //Cant do anything
-      if (Serial) Serial.println("Init failed, halting...");
+      // if (Serial) Serial.println("Init failed, halting...");
       drive(STOP, currentDirectionRad, 0);
       currentDriveState = STOPPED;
       break;
@@ -143,7 +153,7 @@ void loop() {
       drive(STOP, currentDirectionRad, 0);
       break;
     default:
-      if (Serial) Serial.println("In unknown state...");
+      // if (Serial) Serial.println("In unknown state...");
       drive(STOP, currentDirectionRad, 0);
       currentDriveState = STOPPED;
       break;
