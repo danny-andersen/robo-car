@@ -40,10 +40,10 @@ void setup() {
 void loop() {
   // Monitor.print("Proximity: ");
   // Monitor.println(readProximitySensors());
-  if (Serial) {
-    Serial.print("Proximity: ");
-    Serial.println(readProximitySensors());
-  }
+  // if (Serial) {
+  //   Serial.print("Proximity: ");
+  //   Serial.println(readProximitySensors());
+  // }
   delay(1000);
 }
 
