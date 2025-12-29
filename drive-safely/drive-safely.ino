@@ -65,7 +65,7 @@ void setup() {
     // if (Serial) Serial.print("Peripheral Uno not ready");
   }
   delay(1000);
-  wdt_enable(WDTO_1S);
+  wdt_enable(WDTO_4S);
 }
 
 // 1. Sweep the area forward and find the furthest distance; if multiple > 200 cm (max reliable distance) then choose one at random
@@ -81,9 +81,7 @@ void loop() {
     currentState = OFF_GROUND;
   } else if (currentState == OFF_GROUND) {
     //Back on the ground - restart from beginning
-    delay(3000);
-    accelerometerReady = accelerometer_init();
-    currentState = SWEEP;
+    resetGyro();
   }
   // if (Serial) {
   //   Serial.print("STATE: ");
@@ -110,8 +108,7 @@ void loop() {
       // if (Serial) Serial.println("Rotating...");
       if (!rotateTo(directionToDrive)) {
         //Something wrong with gyro as failed to find correct direction
-        accelerometerReady = accelerometer_init();
-        currentState = SWEEP;
+        resetGyro();
       } else {
         //Returns when car is pointed in the right direction
         currentState = DRIVE;
@@ -159,6 +156,14 @@ void loop() {
       break;
   }
   delay(LOOP_TIME);
+}
+
+void resetGyro() {
+    delay(1000);
+    wdt_reset();
+    accelerometerReady = accelerometer_init();
+    wdt_reset();
+    currentState = SWEEP;
 }
 
 void adjustDirection() {
@@ -213,8 +218,8 @@ Robot_State sweepAndFindDirection() {
   // }
   if (sweepStatus == CLEAR_TO_DRIVE) {
     furthestDistance = arcs[furthestObjectIndex].avgDistance;
-    uint16_t servoDirection = arcs[furthestObjectIndex].centerIndex;  //This is the degree relative to where we are currently pointed, where 90 is straightahead
-    uint16_t relDirection = SERVO_CENTRE - servoDirection;            //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
+    int16_t servoDirection = arcs[furthestObjectIndex].centreDirection;  //This is the degree relative to where we are currently pointed, where 90 is straightahead
+    int16_t relDirection = SERVO_CENTRE - servoDirection;            //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
     //Convert to direction based on what the accelerometer things (where 0 is the original starting direction)
     //We need to convert that to a value relative to the accelerometer as it is our only constant point of reference
     directionToDrive = currentDirectionDeg + relDirection;
@@ -270,7 +275,7 @@ SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t *bestDire
       furthestObjectIndex = i;
     }
   }
-  if (arcs[furthestObjectIndex].avgDistance <= MIN_DISTANCE_TO_MOVE * 1.2) {
+  if (arcs[furthestObjectIndex].avgDistance <= MIN_DISTANCE_AHEAD) {
     //No point going any further, turn around and do another sweep
     //Check if any objects are within minimum safe distance, if so need to back out rather than rotate
     if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
@@ -302,15 +307,15 @@ void driveAndScan() {
     // }
     if (distanceClear > 100) {
       //Charge!
-      drive(FORWARD, currentDirectionRad, 150);
+      drive(FORWARD, currentDirectionRad, 125);
       currentDriveState = DRIVE_FORWARD;
     } else if (distanceClear < 100 && distanceClear > 50) {
       //Slow
-      drive(FORWARD, currentDirectionRad, 100);
+      drive(FORWARD, currentDirectionRad, 75);
       currentDriveState = DRIVE_FORWARD;
     } else if (distanceClear > MIN_DISTANCE_TO_MOVE) {
       //Dead slow
-      drive(FORWARD, currentDirectionRad, 75);
+      drive(FORWARD, currentDirectionRad, 50);
       currentDriveState = DRIVE_FORWARD;
     } else {
       //Stop!
