@@ -5,8 +5,8 @@
 #include "accelerometer.h"
 #include "inter-i2c.h"
 #include "motor-driver.h"
-#include "distance-sensor.h"
 #include "robo-car.h"
+#include "distance-sensor.h"
 
 
 unsigned long driveTimer = 0;
@@ -16,6 +16,7 @@ uint16_t currentHeading = 0;      //Current compass heading pointed in
 float currentDirectionRad = 0;    //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
 Robot_State currentState = INIT;
 Drive_State currentDriveState = STOPPED;
+
 uint16_t furthestDistance = 0;
 uint16_t lastDistanceToObstacle = 10000;
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
@@ -25,7 +26,6 @@ uint8_t furthestObjectIndex = 0;
 bool accelerometerReady = false;
 bool compassReady = false;
 uint8_t proximitySensors = 0;
-
 
 void setup() {
   // Serial.begin(9600);
@@ -178,8 +178,6 @@ void adjustDirection() {
 }
 
 Robot_State sweepAndFindDirection() {
-  getAccelerometerEuler();
-  currentDirectionDeg = eulerDeg[0];  //Before we work out which direction to turn, remember what straightahead is
   // if (Serial) {
   //   Serial.print("Sweeping, straightahead = ");
   //   Serial.println(currentDirectionDeg);
@@ -242,52 +240,6 @@ Robot_State sweepAndFindDirection() {
   }
   return currentState;
 }
-//Analyse the distance of the objects found in the sweep to determine
-//(a) whether is safe to drive and which direction
-//(b) Or whether we need to turn around as we are blocked in
-//This may need a reverse if there is no room to turn around
-SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t *bestDirectionIndex) {
-  //Determine greatest distance
-  uint8_t furthestObjectIndex = 0;
-  uint8_t closestObjectIndex = 0;
-  uint8_t widthOfObject = arcs[0].width;
-  SWEEP_STATUS retStatus = CLEAR_TO_DRIVE;
-  for (int i = 1; i < maxObjects; i++) {
-    if (arcs[i].avgDistance == 0) {
-      //null entry
-      continue;
-    }
-    if (arcs[i].avgDistance > arcs[furthestObjectIndex].avgDistance) {
-      furthestObjectIndex = i;
-    }
-    if (arcs[i].avgDistance < arcs[closestObjectIndex].avgDistance) {
-      closestObjectIndex = i;
-    }
-  }
-  //Now re-check best object using the width
-  for (int i = 1; i < maxObjects; i++) {
-    if (arcs[i].avgDistance == 0) {
-      //null entry
-      continue;
-    }
-    if (arcs[i].avgDistance == arcs[furthestObjectIndex].avgDistance && arcs[i].width > widthOfObject) {
-      //Object is the same distance away (probably max) but is wider - go to that one
-      furthestObjectIndex = i;
-    }
-  }
-  if (arcs[furthestObjectIndex].avgDistance <= MIN_DISTANCE_AHEAD) {
-    //No point going any further, turn around and do another sweep
-    //Check if any objects are within minimum safe distance, if so need to back out rather than rotate
-    if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
-      retStatus = CANNOT_TURN;
-    } else {
-      retStatus = BLOCKED_AHEAD;
-    }
-  }
-  *bestDirectionIndex = furthestObjectIndex;
-  return retStatus;
-}
-
 
 void driveAndScan() {
   uint16_t distanceClear = clearDistanceAhead();
