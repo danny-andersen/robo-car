@@ -147,6 +147,7 @@ bool rotateTo(int16_t directionRequired) {
   //   Serial.print(" straightahead is ");
   //   Serial.println(yaw);
   // }
+  timer = 0;
 
   if (diff > 0) {
     // Rotate right
@@ -162,7 +163,7 @@ bool rotateTo(int16_t directionRequired) {
       // if (Serial) {
       //   Serial.print("ROTATE_RIGHT Current yaw: ");
       //   Serial.print(yaw);
-      //   Serial.print("Required yaw: ");
+      //   Serial.print(" Required yaw: ");
       //   Serial.println(directionRequired);
       // }
       // Check for obstacles when turning
@@ -231,7 +232,7 @@ bool rotateTo(int16_t directionRequired) {
       // if (Serial) {
       //   Serial.print("ROTATE_LEFT Current yaw: ");
       //   Serial.print(yaw);
-      //   Serial.print("Required yaw: ");
+      //   Serial.print(" Required yaw: ");
       //   Serial.println(directionRequired);
       // }
       // Check for obstacles when turning
@@ -345,7 +346,7 @@ void backOut() {
       // Moved out of trouble - stop
       break;
     } else {
-      drive(BACK, forwardDirection, 100);
+      drive(BACK, forwardDirection, 50);
     }
     if (getRearProximity()) {
       // Something behind us - stop reversing
@@ -361,6 +362,6 @@ void backOut() {
 void aboutTurn() {
   getAccelerometerEuler();
   int16_t forwardDirection = eulerDeg[0];
-  int16_t reversed = forwardDirection + 180;
+  int16_t reversed = normalise(forwardDirection + 170);
   rotateTo(reversed);
 }
