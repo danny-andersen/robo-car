@@ -29,14 +29,7 @@ const int Kp = 15;
 const int maxSpeed = 255;
 const int minSpeed = 10;
 
-int16_t yaw = 0;
-int16_t startingYaw = 0;  // Before we work out which direction to turn, remember what straightahead is
-int16_t diff = 0;
-long timer = 0;
-long backTimer = 0;
-long forwardTimer = 0;
 float minmax = M_PI - 0.175;
-
 
 void motor_Init() {
   pinMode(PIN_Motor_PWMA, OUTPUT);
@@ -51,48 +44,48 @@ void driveMotor(Motor_Direction direction, uint8_t rightSpeed, uint8_t leftSpeed
   switch (direction) {
     case FORWARD:
       digitalWrite(PIN_Motor_AIN_1, HIGH);
-      analogWrite(PIN_Motor_PWMA, rightSpeed);
       digitalWrite(PIN_Motor_BIN_1, HIGH);
+      analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
       break;
     case BACK:
       digitalWrite(PIN_Motor_AIN_1, LOW);
-      analogWrite(PIN_Motor_PWMA, rightSpeed);
       digitalWrite(PIN_Motor_BIN_1, LOW);
+      analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
       break;
     case ROTATE_LEFT:
       digitalWrite(PIN_Motor_AIN_1, HIGH);  // forward
+      digitalWrite(PIN_Motor_BIN_1, LOW);   // reverse
       analogWrite(PIN_Motor_PWMA, rightSpeed);
-      digitalWrite(PIN_Motor_BIN_1, LOW);  // reverse
       analogWrite(PIN_Motor_PWMB, leftSpeed);
       break;
     case ROTATE_RIGHT:
       digitalWrite(PIN_Motor_AIN_1, LOW);
-      analogWrite(PIN_Motor_PWMA, rightSpeed);
       digitalWrite(PIN_Motor_BIN_1, HIGH);
+      analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
       break;
     case LEFT_FORWARD:
       digitalWrite(PIN_Motor_AIN_1, HIGH);
-      analogWrite(PIN_Motor_PWMA, rightSpeed);
       digitalWrite(PIN_Motor_BIN_1, HIGH);
+      analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed / 2);
     case RIGHT_FORWARD:
       digitalWrite(PIN_Motor_AIN_1, HIGH);
-      analogWrite(PIN_Motor_PWMA, rightSpeed / 2);
       digitalWrite(PIN_Motor_BIN_1, HIGH);
+      analogWrite(PIN_Motor_PWMA, rightSpeed / 2);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
       break;
     case LEFT_BACKWARD:
       digitalWrite(PIN_Motor_AIN_1, LOW);
-      analogWrite(PIN_Motor_PWMA, rightSpeed);
       digitalWrite(PIN_Motor_BIN_1, LOW);
+      analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed / 2);
     case RIGHT_BACKWARD:
       digitalWrite(PIN_Motor_AIN_1, LOW);
-      analogWrite(PIN_Motor_PWMA, rightSpeed / 2);
       digitalWrite(PIN_Motor_BIN_1, LOW);
+      analogWrite(PIN_Motor_PWMA, rightSpeed / 2);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
       break;
     case STOP:
@@ -107,18 +100,28 @@ void driveMotor(Motor_Direction direction, uint8_t rightSpeed, uint8_t leftSpeed
   }
 }
 
-// Make sure direction is in the range -170 to +170
+// Make sure direction is in the range -180 to +180
 // Which is what the accelerometer returns
-int16_t normalise(int16_t dirn_int) {
-  dirn_int = ((dirn_int + 180) % 360) - 180;
+int16_t normalise(int16_t dirn) {
+  if (dirn > 360) {
+    //Convert so from 0 - 360
+    dirn = dirn % 360;
+  }
+  if (dirn > 180) {
+    //Flipped over to negative
+    dirn -= 360;
+  }
+  if (dirn < -180) {
+    //Flipped over to positive
+    dirn += 360;
+  }
   // //180 cant be achieved on accelerometer
-  // float dirn = (float)dirn_int;
-  // Shift into (-170, 170]
-  if (dirn_int > 170)
-    dirn_int = 170;
-  else if (dirn_int < -170)
-    dirn_int = -170;
-  return dirn_int;
+  // Shift into (-179, 179]
+  if (dirn > 179)
+    dirn = 179;
+  else if (dirn < -179)
+    dirn = -179;
+  return dirn;
 }
 
 float normalise_rad(float dirn) {
@@ -136,47 +139,52 @@ bool rotateTo(int16_t directionRequired) {
   //-90 is 90 deg to the left
   //+90 is 90 deg to the right
   directionRequired = normalise(directionRequired);
-  yaw = eulerDeg[0];
-  startingYaw = yaw;  // Before we work out which direction to turn, remember what straightahead is
-  diff = directionRequired - yaw;
+  int16_t currentDirn = eulerDeg[0];                 // Before we work out which direction to turn, remember what straightahead is
+  int16_t rotate = directionRequired - currentDirn;  //Rotation angle - positive is right, negative is rotate left
+  rotate = normalise(rotate);                        //Set within -180 to +180
+  // int16_t startingYaw = yaw;
   if (Serial) {
     Serial.print("Rotating to: ");
     Serial.print(directionRequired);
-    Serial.print(" Diff: ");
-    Serial.print(diff);
-    Serial.print(" straightahead is ");
-    Serial.println(yaw);
+    Serial.print(" Rotate Angle: ");
+    Serial.print(rotate);
+    Serial.print(", straightahead is ");
+    Serial.println(currentDirn);
   }
-  timer = 0;
-
-  if (diff > 0) {
+  if (rotate == 0) return true;
+  long timer = 0;
+  long backTimer = 0;
+  long forwardTimer = 0;
+  int16_t diff = rotate;
+  //Start rotation
+  if (rotate > 0) {
     // Rotate right
     driveMotor(ROTATE_RIGHT, 75, 75);
-    do {
-      delay(ROTATE_CHECK_INTERVAL);
-      wdt_reset();
-      timer += ROTATE_CHECK_INTERVAL;  // Prevent continuous spinning if something goes wrong
-      if (leftGround()) {
-        driveMotor(STOP, 0, 0);
-        break;
-      }
-      if (Serial) {
-        Serial.print("ROTATE_RIGHT Current yaw: ");
-        Serial.print(yaw);
-        Serial.print(" Required yaw: ");
-        Serial.println(directionRequired);
-      }
-      // Check for obstacles when turning
-      uint8_t proximity = getProximityState();
-      if (checkFrontRightProximity(proximity) && checkRearLeftProximity(proximity)) {
-        // We cant rotate this way
-        // Try the other way
-        diff = -diff;
-        backTimer = 0;
-        forwardTimer = 0;
-        timer = 0;
-        break;
-      }
+  } else {
+    // Rotate left
+    driveMotor(ROTATE_LEFT, 75, 75);
+  }
+
+  do {
+    delay(ROTATE_CHECK_INTERVAL);
+    wdt_reset();
+    timer += ROTATE_CHECK_INTERVAL;  // Prevent continuous spinning if something goes wrong
+    if (leftGround()) {
+      driveMotor(STOP, 0, 0);
+      break;
+    }
+    // Check for obstacles when turning
+    uint8_t proximity = getProximityState();
+    if (checkFrontRightProximity(proximity) && checkRearLeftProximity(proximity)) {
+      // We cant rotate this way
+      // Try the other way
+      rotate -= rotate;
+      backTimer = 0;
+      forwardTimer = 0;
+      timer = 0;
+    }
+    if (rotate > 0) {
+      // Rotating right
       if (checkFrontRightProximity(proximity)) {
         // Cant rotate - need to back up a bit before rotating
         if (forwardTimer > 0) {
@@ -205,42 +213,9 @@ bool rotateTo(int16_t directionRequired) {
       } else {
         driveMotor(ROTATE_RIGHT, 75, 75);
       }
-      getAccelerometerEuler();
-      yaw = eulerDeg[0];
-      diff = directionRequired - yaw;
-      // if (timer > 500) {
-      //   if (abs(startingYaw - yaw) <= 10) {
-      //     //We must have rotated a complete 360 - reset the gyro
-      //     driveMotor(STOP, 0, 0);
-      //     return false;
-      //   }
-      // }
-      // } while (timer <= 5000 && ((directionRequired > yaw) && ((directionRequired - yaw) < 180)) || ((directionRequired < yaw) && ((directionRequired - yaw) >= 180)));
-    } while (diff > 0 && timer < MAX_ROTATE_TIME);
-  }
-  if (diff < 0) {
-    // Rotate left
-    driveMotor(ROTATE_LEFT, 75, 75);
-    do {
-      delay(ROTATE_CHECK_INTERVAL);
-      wdt_reset();
-      timer += ROTATE_CHECK_INTERVAL;
-      if (leftGround()) {
-        driveMotor(STOP, 0, 0);
-        break;
-      }
-      if (Serial) {
-        Serial.print("ROTATE_LEFT Current yaw: ");
-        Serial.print(yaw);
-        Serial.print(" Required yaw: ");
-        Serial.println(directionRequired);
-      }
+    } else {
+      //Rotating left
       // Check for obstacles when turning
-      uint8_t proximity = getProximityState();
-      if (checkFrontLeftProximity(proximity) && checkRearRightProximity(proximity)) {
-        // We are stuck - stop
-        break;
-      }
       if (checkFrontLeftProximity(proximity)) {
         // Cant rotate - need to back up a bit before rotating
         if (forwardTimer > 0) {
@@ -267,21 +242,31 @@ bool rotateTo(int16_t directionRequired) {
         driveMotor(FORWARD, 75, 75);
         forwardTimer -= ROTATE_CHECK_INTERVAL;
       } else {
+        // Rotate left
         driveMotor(ROTATE_LEFT, 75, 75);
       }
-      getAccelerometerEuler();
-      yaw = eulerDeg[0];
-      diff = directionRequired - yaw;
-      // if (timer > 500) {
-      //   if (abs(startingYaw - yaw) <= 10) {
-      //     //We must have rotated a complete 360 - reset the gyro
-      //     driveMotor(STOP, 0, 0);
-      //     return false;
-      //   }
-      // }
-      // } while (timer <= 5000 && ((directionRequired < yaw) && ((directionRequired - yaw) < 180)) || ((directionRequired > yaw) && ((directionRequired - yaw) >= 180)));
-    } while (diff < 0 && timer < MAX_ROTATE_TIME);
-  }
+    }
+    getAccelerometerEuler();
+    currentDirn = eulerDeg[0];                          // Before we work out which direction to turn, remember what straightahead is
+    diff = normalise(directionRequired - currentDirn);  //Rotation angle - positive is right, negative is rotate left
+    if (Serial) {
+      Serial.print("Rotating ");
+      Serial.print(rotate > 0 ? "RIGHT " : "LEFT ");
+      Serial.print("Current yaw: ");
+      Serial.print(currentDirn);
+      Serial.print(" Required yaw: ");
+      Serial.println(directionRequired);
+    }
+
+    // if (timer > 500) {
+    //   if (abs(startingYaw - yaw) <= 10) {
+    //     //We must have rotated a complete 360 - reset the gyro
+    //     driveMotor(STOP, 0, 0);
+    //     return false;
+    //   }
+    // }
+    // } while (timer <= 5000 && ((directionRequired > yaw) && ((directionRequired - yaw) < 180)) || ((directionRequired < yaw) && ((directionRequired - yaw) >= 180)));
+  } while (((rotate > 0 && diff > 0) || (rotate < 0 && diff < 0)) && timer < MAX_ROTATE_TIME);
   driveMotor(STOP, 0, 0);
   return true;
 }
@@ -346,7 +331,7 @@ void backOut() {
       // Moved out of trouble - stop
       break;
     } else {
-      drive(BACK, forwardDirection, 100);
+      drive(BACK, forwardDirection, 50);
     }
     if (getRearProximity()) {
       // Something behind us - stop reversing
@@ -355,13 +340,13 @@ void backOut() {
     delay(50);
     wdt_reset();
     backoutTimer += 50;
-  } while (backoutTimer < 500);
+  } while (backoutTimer < 1000);
   drive(STOP, forwardDirection, 0);
 }
 
 void aboutTurn() {
   getAccelerometerEuler();
   int16_t forwardDirection = eulerDeg[0];
-  int16_t reversed = normalise(forwardDirection + 180);
+  int16_t reversed = normalise(forwardDirection + 170);
   rotateTo(reversed);
 }

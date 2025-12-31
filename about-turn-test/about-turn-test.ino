@@ -32,7 +32,14 @@ void setup() {
   motor_Init();
   distanceSensorInit();
 
-  // rotateTo(45);
+  // rotateTo(90);
+  // delay(1000);
+  // rotateTo(180);
+  // delay(1000);
+  // rotateTo(270);
+  // delay(1000);
+  // rotateTo(360);
+
   if (Serial) Serial.println("U turn...");
   aboutTurn();
   delay(1000);
