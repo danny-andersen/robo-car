@@ -159,11 +159,11 @@ void loop() {
 }
 
 void resetGyro() {
-    delay(1000);
-    wdt_reset();
-    accelerometerReady = accelerometer_init();
-    wdt_reset();
-    currentState = SWEEP;
+  delay(1000);
+  wdt_reset();
+  accelerometerReady = accelerometer_init();
+  wdt_reset();
+  currentState = SWEEP;
 }
 
 void adjustDirection() {
@@ -188,50 +188,15 @@ Robot_State sweepAndFindDirection() {
     arcs[i].avgDistance = 0;
   }
   int numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
-  // if (Serial) {
-  //   Serial.println("Arcs found:");
-  //   for (int j = 0; j < numObjects; j++) {
-  //     if (arcs[j].avgDistance == 0) {
-  //       //null entry
-  //       continue;
-  //     }
-  //     Serial.print("Arc ");
-  //     Serial.print(j);
-  //     Serial.print(": start=");
-  //     Serial.print(arcs[j].startIndex);
-  //     Serial.print(", end=");
-  //     Serial.print(arcs[j].endIndex);
-  //     Serial.print(", width=");
-  //     Serial.print(arcs[j].width);
-  //     Serial.print(", center=");
-  //     Serial.print(arcs[j].centerIndex);
-  //     Serial.print(", avg=");
-  //     Serial.println(arcs[j].avgDistance);
-  //   }
-  // }
   SWEEP_STATUS sweepStatus = checkSurroundings(arcs, numObjects, &furthestObjectIndex);
-  // if (Serial) {
-  //   Serial.print("Sweep status: ");
-  //   Serial.println(sweepStatus);
-  // }
   if (sweepStatus == CLEAR_TO_DRIVE) {
     furthestDistance = arcs[furthestObjectIndex].avgDistance;
     int16_t servoDirection = arcs[furthestObjectIndex].centreDirection;  //This is the degree relative to where we are currently pointed, where 90 is straightahead
-    int16_t relDirection = SERVO_CENTRE - servoDirection;            //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
+    int16_t relDirection = SERVO_CENTRE - servoDirection;                //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
     //Convert to direction based on what the accelerometer things (where 0 is the original starting direction)
     //We need to convert that to a value relative to the accelerometer as it is our only constant point of reference
     directionToDrive = currentDirectionDeg + relDirection;
     currentState = ROTATING;
-    // if (Serial) {
-    //   Serial.print("Distance to drive: ");
-    //   Serial.print(furthestDistance);
-    //   Serial.print(" in servo direction: ");
-    //   Serial.print(servoDirection);
-    //   Serial.print(" in Direction: ");
-    //   Serial.print(directionToDrive);
-    //   Serial.print(" Current direction: ");
-    //   Serial.println(currentDirectionDeg);
-    // }
   } else if (sweepStatus == BLOCKED_AHEAD) {
     //Turn 180 and sweep
     currentState = UTURN_SWEEP;
@@ -239,6 +204,53 @@ Robot_State sweepAndFindDirection() {
     currentState = BACK_OUT;
   }
   return currentState;
+}
+
+//Analyse the distance of the objects found in the sweep to determine
+//(a) whether is safe to drive and which direction
+//(b) Or whether we need to turn around as we are blocked in
+//This may need a reverse if there is no room to turn around
+SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t* bestDirectionIndex) {
+  //Determine greatest distance
+  uint8_t furthestObjectIndex = 0;
+  uint8_t closestObjectIndex = 0;
+  uint8_t widthOfObject = arcs[0].width;
+  SWEEP_STATUS retStatus = CLEAR_TO_DRIVE;
+  for (int i = 1; i < maxObjects; i++) {
+    if (arcs[i].avgDistance == 0) {
+      //null entry
+      continue;
+    }
+    if (arcs[i].avgDistance > arcs[furthestObjectIndex].avgDistance) {
+      furthestObjectIndex = i;
+    }
+    if (arcs[i].avgDistance < arcs[closestObjectIndex].avgDistance) {
+      closestObjectIndex = i;
+    }
+  }
+  //Now re-check best object using the width
+  for (int i = 1; i < maxObjects; i++) {
+    if (arcs[i].avgDistance == 0) {
+      //null entry
+      continue;
+    }
+    if (arcs[i].avgDistance == arcs[furthestObjectIndex].avgDistance && arcs[i].width > widthOfObject) {
+      //Object is the same distance away (probably max) but is wider - go to that one
+      furthestObjectIndex = i;
+    }
+  }
+  if (arcs[furthestObjectIndex].avgDistance <= MIN_DISTANCE_AHEAD) {
+    //No point going any further, turn around and do another sweep
+
+    //Check if any objects are within minimum safe distance, if so need to back out rather than rotate
+    // if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
+    //   retStatus = CANNOT_TURN;
+    // } else {
+    retStatus = BLOCKED_AHEAD;
+    // }
+  }
+  *bestDirectionIndex = furthestObjectIndex;
+  return retStatus;
 }
 
 void driveAndScan() {
@@ -249,30 +261,35 @@ void driveAndScan() {
     drive(STOP, currentDirectionRad, 0);
     currentDriveState = STOPPED;
   } else {
-    // if (abs(distanceClear - lastDistanceToObstacle) < 3) {
-    //   //Stuck on something - reverse
-    //   drive(BACK, 50);
-    //   delay(1000);
-    //   drive(STOP, 0);
-    //   currentDriveState = STOPPED;
-    //   return;
-    // }
-    if (distanceClear > 100) {
-      //Charge!
-      drive(FORWARD, currentDirectionRad, 125);
-      currentDriveState = DRIVE_FORWARD;
-    } else if (distanceClear < 100 && distanceClear > 50) {
-      //Slow
-      drive(FORWARD, currentDirectionRad, 75);
-      currentDriveState = DRIVE_FORWARD;
-    } else if (distanceClear > MIN_DISTANCE_TO_MOVE) {
-      //Dead slow
-      drive(FORWARD, currentDirectionRad, 50);
-      currentDriveState = DRIVE_FORWARD;
-    } else {
-      //Stop!
+    if (abs(distanceClear - lastDistanceToObstacle) < 5) {
+      //Stuck on something - reverse
+      drive(BACK, currentDirectionRad, 50);
+      unsigned long backTimer = 0;
+      do {
+        delay(50);
+        wdt_reset();
+      } while (backTimer < 1000);
       drive(STOP, currentDirectionRad, 0);
       currentDriveState = STOPPED;
+      return;
+    } else {
+      if (distanceClear > 100) {
+        //Charge!
+        drive(FORWARD, currentDirectionRad, 125);
+        currentDriveState = DRIVE_FORWARD;
+      } else if (distanceClear < 100 && distanceClear > 50) {
+        //Slow
+        drive(FORWARD, currentDirectionRad, 75);
+        currentDriveState = DRIVE_FORWARD;
+      } else if (distanceClear > MIN_DISTANCE_TO_MOVE) {
+        //Dead slow
+        drive(FORWARD, currentDirectionRad, 50);
+        currentDriveState = DRIVE_FORWARD;
+      } else {
+        //Stop!
+        drive(STOP, currentDirectionRad, 0);
+        currentDriveState = STOPPED;
+      }
     }
   }
   lastDistanceToObstacle = distanceClear;

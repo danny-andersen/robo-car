@@ -1,4 +1,4 @@
-#define LOOP_TIME 50
+#define LOOP_TIME 100
 #define NUMBER_OF_ANGLES_IN_SWEEP 180  //Number of samples to take in a sweep
 #define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
 #define MIN_DISTANCE_TO_MOVE 20  //Dont get any closer than this
