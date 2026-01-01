@@ -122,18 +122,17 @@ void loop() {
       currentState = SWEEP;
       break;
     case BACK_OUT:
-      // Reverse for 0.5 second, turn around and do another sweep
+      // Reverse for 0.5 second, and do another sweep
       // if (Serial) Serial.println("Reversing");
       backOut();
-      currentState = UTURN_SWEEP;
+      currentState = SWEEP;
       break;
     case DRIVE:
       //Drive straight and scan (note that yaw should be reset)
       driveAndScan();
       if (currentDriveState == STOPPED) {
         if (proximitySensors) {
-          adjustDirection();
-          currentState = ROTATING;
+          currentState = adjustDirection();;
         } else {
           //Reached the end of the current drive - do another sweep
           currentState = SWEEP;
@@ -166,15 +165,22 @@ void resetGyro() {
   currentState = SWEEP;
 }
 
-void adjustDirection() {
+Robot_State adjustDirection() {
+  Robot_State returnState = DRIVE;
   //Something low down caused the stop
+  if (checkFrontProximity(proximitySensors)) {
+    //Need to backout a little and sweep
+    returnState = BACK_OUT; 
+  }
   if (checkFrontRightProximity(proximitySensors)) {
     //Rotate a bit left
     directionToDrive -= 20;
+
   } else if (checkFrontLeftProximity(proximitySensors)) {
     //Rotate a bit to the right
     directionToDrive += 20;
   }
+  return returnState;
 }
 
 Robot_State sweepAndFindDirection() {
@@ -261,35 +267,36 @@ void driveAndScan() {
     drive(STOP, currentDirectionRad, 0);
     currentDriveState = STOPPED;
   } else {
-    if (abs(distanceClear - lastDistanceToObstacle) < 5) {
-      //Stuck on something - reverse
-      drive(BACK, currentDirectionRad, 50);
-      unsigned long backTimer = 0;
-      do {
-        delay(50);
-        wdt_reset();
-      } while (backTimer < 1000);
+    //TODO - use wheel speed and/or accelerometer to detect being stuck on something - ultrasonic is too inaccurate
+    // if (abs(distanceClear - lastDistanceToObstacle) < 3) {
+    //   //Stuck on something - reverse
+    //   drive(BACK, currentDirectionRad, 50);
+    //   unsigned long backTimer = 0;
+    //   do {
+    //     delay(50);
+    //     wdt_reset();
+    //     backTimer += 50;
+    //   } while (backTimer < 1000);
+    //   drive(STOP, currentDirectionRad, 0);
+    //   currentDriveState = STOPPED;
+    //   return;
+    // } else {
+    if (distanceClear > 100) {
+      //Charge!
+      drive(FORWARD, currentDirectionRad, 125);
+      currentDriveState = DRIVE_FORWARD;
+    } else if (distanceClear < 100 && distanceClear > 50) {
+      //Slow
+      drive(FORWARD, currentDirectionRad, 75);
+      currentDriveState = DRIVE_FORWARD;
+    } else if (distanceClear > MIN_DISTANCE_TO_MOVE) {
+      //Dead slow
+      drive(FORWARD, currentDirectionRad, 50);
+      currentDriveState = DRIVE_FORWARD;
+    } else {
+      //Stop!
       drive(STOP, currentDirectionRad, 0);
       currentDriveState = STOPPED;
-      return;
-    } else {
-      if (distanceClear > 100) {
-        //Charge!
-        drive(FORWARD, currentDirectionRad, 125);
-        currentDriveState = DRIVE_FORWARD;
-      } else if (distanceClear < 100 && distanceClear > 50) {
-        //Slow
-        drive(FORWARD, currentDirectionRad, 75);
-        currentDriveState = DRIVE_FORWARD;
-      } else if (distanceClear > MIN_DISTANCE_TO_MOVE) {
-        //Dead slow
-        drive(FORWARD, currentDirectionRad, 50);
-        currentDriveState = DRIVE_FORWARD;
-      } else {
-        //Stop!
-        drive(STOP, currentDirectionRad, 0);
-        currentDriveState = STOPPED;
-      }
     }
   }
   lastDistanceToObstacle = distanceClear;
