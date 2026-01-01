@@ -1,12 +1,19 @@
+#include <avr/wdt.h>
 #include "accelerometer.h"
+bool leftGround() {
+  return false;
+}
+#include "inter-i2c.h"
+#include "robo-car.h"
 #include "motor-driver.h"
 
 bool accelerometerReady = false;
 int driveCount = 0;
 unsigned long driveTimer = 0;
-unsigned long DRIVETIME = 2000;
+unsigned long DRIVETIME = 3000;
 unsigned long DELAYTIME = 50;
 float forwardRad = 0;
+bool forward = true;
 
 void setup() {
   // Serial.begin(9600);
@@ -25,23 +32,17 @@ void loop() {
     //Test over
     return;
   }
-  drive(FORWARD, forwardRad, 150);
-  delay(DELAYTIME);
-  driveTimer += DELAYTIME;
-  if (driveTimer > DRIVETIME) {
-    backOut();
-    //Go back to start
-    driveTimer = 0;
-    do {
-      drive(FORWARD, forwardRad, 100);
-      delay(DELAYTIME);
-      driveTimer += DELAYTIME;
-    } while (driveTimer < 1000);
-    drive(STOP, forwardRad, 100);
-    aboutTurn();  //turn around instead of reversing
-    getAccelerometerEuler();
-    forwardRad = euler[0];  //New forward direction
-    driveTimer = 0;
-    driveCount += 1;
-  }
+  if (forward) {
+    drive(FORWARD, forwardRad, 125);
+
+  } else {
+    drive(BACK, forwardRad, 125);
+}
+delay(DELAYTIME);
+driveTimer += DELAYTIME;
+if (driveTimer > DRIVETIME) {
+  forward = !forward;
+  driveTimer = 0;
+  driveCount += 1;
+}
 }
