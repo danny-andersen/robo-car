@@ -29,7 +29,7 @@ const int Kp = 15;
 const int maxSpeed = 255;
 const int minSpeed = 10;
 
-float minmax = M_PI - 0.175;
+const float minmax = M_PI - 0.175;
 
 void motor_Init() {
   pinMode(PIN_Motor_PWMA, OUTPUT);
@@ -40,53 +40,61 @@ void motor_Init() {
 }
 
 void driveMotor(Motor_Direction direction, uint8_t rightSpeed, uint8_t leftSpeed) {
-  digitalWrite(PIN_Motor_STBY, HIGH);
   switch (direction) {
     case FORWARD:
       digitalWrite(PIN_Motor_AIN_1, HIGH);
       digitalWrite(PIN_Motor_BIN_1, HIGH);
       analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
+      digitalWrite(PIN_Motor_STBY, HIGH);
       break;
     case BACK:
       digitalWrite(PIN_Motor_AIN_1, LOW);
       digitalWrite(PIN_Motor_BIN_1, LOW);
       analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
+      digitalWrite(PIN_Motor_STBY, HIGH);
       break;
     case ROTATE_LEFT:
       digitalWrite(PIN_Motor_AIN_1, HIGH);  // forward
       digitalWrite(PIN_Motor_BIN_1, LOW);   // reverse
       analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
+      digitalWrite(PIN_Motor_STBY, HIGH);
       break;
     case ROTATE_RIGHT:
       digitalWrite(PIN_Motor_AIN_1, LOW);
       digitalWrite(PIN_Motor_BIN_1, HIGH);
       analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
+      digitalWrite(PIN_Motor_STBY, HIGH);
       break;
     case LEFT_FORWARD:
       digitalWrite(PIN_Motor_AIN_1, HIGH);
       digitalWrite(PIN_Motor_BIN_1, HIGH);
       analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed / 2);
+      digitalWrite(PIN_Motor_STBY, HIGH);
     case RIGHT_FORWARD:
       digitalWrite(PIN_Motor_AIN_1, HIGH);
       digitalWrite(PIN_Motor_BIN_1, HIGH);
       analogWrite(PIN_Motor_PWMA, rightSpeed / 2);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
+      digitalWrite(PIN_Motor_STBY, HIGH);
       break;
     case LEFT_BACKWARD:
       digitalWrite(PIN_Motor_AIN_1, LOW);
       digitalWrite(PIN_Motor_BIN_1, LOW);
       analogWrite(PIN_Motor_PWMA, rightSpeed);
       analogWrite(PIN_Motor_PWMB, leftSpeed / 2);
+      digitalWrite(PIN_Motor_STBY, HIGH);
+      break;
     case RIGHT_BACKWARD:
       digitalWrite(PIN_Motor_AIN_1, LOW);
       digitalWrite(PIN_Motor_BIN_1, LOW);
       analogWrite(PIN_Motor_PWMA, rightSpeed / 2);
       analogWrite(PIN_Motor_PWMB, leftSpeed);
+      digitalWrite(PIN_Motor_STBY, HIGH);
       break;
     case STOP:
       analogWrite(PIN_Motor_PWMA, 0);
@@ -95,6 +103,7 @@ void driveMotor(Motor_Direction direction, uint8_t rightSpeed, uint8_t leftSpeed
       break;
     default:
       analogWrite(PIN_Motor_PWMA, 0);
+      analogWrite(PIN_Motor_PWMB, 0);
       digitalWrite(PIN_Motor_STBY, LOW);
       break;
   }
@@ -115,7 +124,7 @@ int16_t normalise(int16_t dirn) {
     //Flipped over to positive
     dirn += 360;
   }
-  // //180 cant be achieved on accelerometer
+  // 180 cant be achieved on accelerometer
   // Shift into (-179, 179]
   if (dirn > 179)
     dirn = 179;
@@ -143,19 +152,20 @@ bool rotateTo(int16_t directionRequired) {
   int16_t rotate = directionRequired - currentDirn;  //Rotation angle - positive is right, negative is rotate left
   rotate = normalise(rotate);                        //Set within -180 to +180
   // int16_t startingYaw = yaw;
-  if (Serial) {
-    Serial.print("Rotating to: ");
-    Serial.print(directionRequired);
-    Serial.print(" Rotate Angle: ");
-    Serial.print(rotate);
-    Serial.print(", straightahead is ");
-    Serial.println(currentDirn);
-  }
+  // if (Serial) {
+  //   Serial.print("Rotating to: ");
+  //   Serial.print(directionRequired);
+  //   Serial.print(" Rotate Angle: ");
+  //   Serial.print(rotate);
+  //   Serial.print(", straightahead is ");
+  //   Serial.println(currentDirn);
+  // }
   if (rotate == 0) return true;
   long timer = 0;
   long backTimer = 0;
   long forwardTimer = 0;
   int16_t diff = rotate;
+  bool triedOtherDirn = false;
   //Start rotation
   if (rotate > 0) {
     // Rotate right
@@ -175,19 +185,24 @@ bool rotateTo(int16_t directionRequired) {
     }
     // Check for obstacles when turning
     uint8_t proximity = getProximityState();
-    if (checkFrontRightProximity(proximity) && checkRearLeftProximity(proximity)) {
-      // We cant rotate this way
-      // Try the other way
-      rotate -= rotate;
-      backTimer = 0;
-      forwardTimer = 0;
-      timer = 0;
-    }
     if (rotate > 0) {
       // Rotating right
-      if (checkFrontRightProximity(proximity)) {
+      if (checkFrontRightProximity(proximity) && checkRearLeftProximity(proximity)) {
+        // We cant rotate this way
+        // Try the other way
+        if (!triedOtherDirn) {
+          rotate -= rotate;
+          backTimer = 0;
+          forwardTimer = 0;
+          timer = 0;
+          triedOtherDirn = true;
+        } else {
+          //We are pretty stuck!
+          return true;
+        }
+      } else if (checkFrontRightProximity(proximity)) {
         // Cant rotate - need to back up a bit before rotating
-        if (forwardTimer > 0) {
+        if (backTimer > 0) {
           // We dont have much room to the rear, only back up until obstruction gone
           backTimer = ROTATE_CHECK_INTERVAL;
         } else {
@@ -196,7 +211,7 @@ bool rotateTo(int16_t directionRequired) {
         forwardTimer = 0;
       } else if (checkRearLeftProximity(proximity)) {
         // Cant rotate - need to go forward a bit before rotating
-        if (backTimer > 0) {
+        if (forwardTimer > 0) {
           // Dont have much room to the front, only go forward until obstruction gone
           forwardTimer = ROTATE_CHECK_INTERVAL;
         } else {
@@ -216,9 +231,22 @@ bool rotateTo(int16_t directionRequired) {
     } else {
       //Rotating left
       // Check for obstacles when turning
-      if (checkFrontLeftProximity(proximity)) {
+      if (checkFrontLeftProximity(proximity) && checkRearRightProximity(proximity)) {
+        // We cant rotate this way
+        // Try the other way
+        if (!triedOtherDirn) {
+          rotate -= rotate;
+          backTimer = 0;
+          forwardTimer = 0;
+          timer = 0;
+          triedOtherDirn = true;
+        } else {
+          //We are pretty stuck!
+          return true;
+        }
+      } else if (checkFrontLeftProximity(proximity)) {
         // Cant rotate - need to back up a bit before rotating
-        if (forwardTimer > 0) {
+        if (backTimer > 0) {
           // We dont have much room to the rear, only back up until obstruction gone
           backTimer = ROTATE_CHECK_INTERVAL;
         } else {
@@ -227,7 +255,7 @@ bool rotateTo(int16_t directionRequired) {
         forwardTimer = 0;
       } else if (checkRearRightProximity(proximity)) {
         // Cant rotate - need to go forward a bit before rotating
-        if (backTimer > 0) {
+        if (forwardTimer > 0) {
           // Dont have much room to the front, only go forward until obstruction gone
           forwardTimer = ROTATE_CHECK_INTERVAL;
         } else {
@@ -249,14 +277,14 @@ bool rotateTo(int16_t directionRequired) {
     getAccelerometerEuler();
     currentDirn = eulerDeg[0];                          // Before we work out which direction to turn, remember what straightahead is
     diff = normalise(directionRequired - currentDirn);  //Rotation angle - positive is right, negative is rotate left
-    if (Serial) {
-      Serial.print("Rotating ");
-      Serial.print(rotate > 0 ? "RIGHT " : "LEFT ");
-      Serial.print("Current yaw: ");
-      Serial.print(currentDirn);
-      Serial.print(" Required yaw: ");
-      Serial.println(directionRequired);
-    }
+    // if (Serial) {
+    //   Serial.print("Rotating ");
+    //   Serial.print(rotate > 0 ? "RIGHT " : "LEFT ");
+    //   Serial.print("Current yaw: ");
+    //   Serial.print(currentDirn);
+    //   Serial.print(" Required yaw: ");
+    //   Serial.println(directionRequired);
+    // }
 
     // if (timer > 500) {
     //   if (abs(startingYaw - yaw) <= 10) {
@@ -319,34 +347,34 @@ void backOut() {
   float forwardDirection = euler[0];
   bool removingPitchOrRoll = false;
   unsigned long backoutTimer = 0;
+  drive(BACK, forwardDirection, 50);
   do {
-    if (leftGround()) {
+    if (leftGround() || getRearProximity()) {
+      // Something behind us or we have back been picked up - stop
       break;
     }
     getAccelerometerEuler();
     if (rollingOrPitching()) {
       // Move forward out of trouble
+      removingPitchOrRoll = true;
       drive(FORWARD, forwardDirection, 50);
     } else if (removingPitchOrRoll) {
       // Moved out of trouble - stop
       break;
     } else {
+      //Continue driving back
       drive(BACK, forwardDirection, 50);
-    }
-    if (getRearProximity()) {
-      // Something behind us - stop reversing
-      break;
     }
     delay(50);
     wdt_reset();
     backoutTimer += 50;
-  } while (backoutTimer < 1000);
+  } while (backoutTimer < 500);
   drive(STOP, forwardDirection, 0);
 }
 
 void aboutTurn() {
   getAccelerometerEuler();
   int16_t forwardDirection = eulerDeg[0];
-  int16_t reversed = normalise(forwardDirection + 170);
+  int16_t reversed = normalise(forwardDirection + 180);
   rotateTo(reversed);
 }
