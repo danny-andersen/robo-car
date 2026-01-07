@@ -27,7 +27,7 @@ VectorInt16 gy;       // [x, y, z]            Gyro sensor measurements
 VectorInt16 aaReal;   // [x, y, z]            Gravity-free accel sensor measurements
 VectorFloat gravity;  // [x, y, z]            Gravity vector
 float euler[3];       // [psi, theta, phi]    Euler angle container
-float eulerDeg[3];     // Euler in degrees
+int16_t eulerDeg[3];    // Euler in degrees
 float ypr[3];         // [yaw, pitch, roll]   Yaw/Pitch/Roll container and gravity vector
 
 bool accelerometer_init() {
@@ -35,10 +35,10 @@ bool accelerometer_init() {
   // e.g., set up I2C communication, configure registers, etc.
   Wire.begin();
   /* Initializate and configure the DMP*/
-  Serial.println("Initialising DMP...");
+  if (Serial) Serial.println("Initialising DMP...");
   devStatus = mpu.dmpInitialize();
   if (mpu.testConnection() == false) {
-    Serial.println("MPU6050 connection failed");
+    if (Serial) Serial.println("MPU6050 connection failed");
     while (true)
       ;
   }
@@ -61,9 +61,11 @@ bool accelerometer_init() {
     mpu.setDMPEnabled(true);
     return true;  // Return TRUE if initialization is successful
   } else {
-    Serial.print(F("DMP Initialisation failed (code "));  //Print the error code
-    Serial.print(devStatus);
-    Serial.println(F(")"));
+    if (Serial) {
+      Serial.print(F("DMP Initialisation failed (code "));  //Print the error code
+      Serial.print(devStatus);
+      Serial.println(F(")"));
+    }
     return false;
     // 1 = initial memory load failed
     // 2 = DMP configuration updates failed
@@ -76,15 +78,22 @@ bool getAccelerometerEuler() {
     // mpu.dmpGetGravity(&gravity, &q);
     // mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
     mpu.dmpGetEuler(euler, &q);
-    //Convert to degrees
-    eulerDeg[0] = euler[0] * 180 / M_PI;
-    eulerDeg[1] = euler[1] * 180 / M_PI;
-    eulerDeg[2] = euler[2] * 180 / M_PI;
+    //Convert to degrees -> +90 is 90degrees to the right, -90 is 90 deg to the left
+    eulerDeg[0] = int((euler[0] * 180 / M_PI) + 0.5);
+    eulerDeg[1] = int((euler[1] * 180 / M_PI) + 0.5);
+    eulerDeg[2] = int((euler[2] * 180 / M_PI) + 0.5);
 
     return true;
   } else {
     return false;
   }
+}
+
+bool rollingOrPitching() {
+  float currentRoll = euler[1];
+  float currentPitch = euler[2];
+
+  return (abs(currentRoll) >= 5 || abs(currentPitch) >= 5);
 }
 
 bool getAccelerometerAllReading() {

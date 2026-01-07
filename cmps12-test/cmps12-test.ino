@@ -186,5 +186,5 @@ void loop() {
   // Serial.print("  accelZ: ");     // Display 16 bit angle with decimal place
   // Serial.println(accelZ);
 
-  delay(1000);  // Short delay before next loop
+  delay(250);  // Short delay before next loop
 }
