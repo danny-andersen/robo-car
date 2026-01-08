@@ -7,6 +7,11 @@
 #define FRONT_RIGHT_PROX_SENSOR 3
 #define REAR_LEFT_PROX_SENSOR 4
 #define REAR_RIGHT_PROX_SENSOR 5
+#define FRONT_LEFT_WHEEL_SENSOR 6
+#define FRONT_RIGHT_WHEEL_SENSOR 7
+#define TOP_FRONT_RIGHT_PROX_SENSOR 8
+#define TOP_FRONT_LEFT_PROX_SENSOR 9
+
 
 uint8_t numObstaclesToRx = 0;
 uint8_t currentCommand = 0;
