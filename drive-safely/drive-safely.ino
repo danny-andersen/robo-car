@@ -26,6 +26,7 @@ uint8_t furthestObjectIndex = 0;
 bool accelerometerReady = false;
 bool compassReady = false;
 uint8_t proximitySensors = 0;
+bool drivingForward = false;  //Set to true when driving forward
 
 void setup() {
   // Serial.begin(9600);
@@ -129,15 +130,12 @@ void loop() {
       break;
     case DRIVE:
       //Drive straight and scan (note that yaw should be reset)
-      driveAndScan();
-      if (currentDriveState == STOPPED) {
-        if (proximitySensors) {
-          currentState = adjustDirection();;
-        } else {
-          //Reached the end of the current drive - do another sweep
-          currentState = SWEEP;
-        }
+      if (!drivingForward) {
+        //Send starting motor to peripheral to start counting wheel rotation
+        sendStartMotorCmd();
+        drivingForward = true;
       }
+      driveAndScan();
       break;
     case INIT_FAILED:
       //Cant do anything
@@ -168,17 +166,16 @@ void resetGyro() {
 Robot_State adjustDirection() {
   Robot_State returnState = DRIVE;
   //Something low down caused the stop
-  if (checkFrontProximity(proximitySensors)) {
-    //Need to backout a little and sweep
-    returnState = BACK_OUT; 
-  }
-  if (checkFrontRightProximity(proximitySensors)) {
+  if (checkFrontRightProximity(proximitySensors) && !checkFrontLeftProximity(proximitySensors)) {
     //Rotate a bit left
     directionToDrive -= 20;
 
-  } else if (checkFrontLeftProximity(proximitySensors)) {
+  } else if (checkFrontLeftProximity(proximitySensors) && !checkFrontRightProximity(proximitySensors) ) {
     //Rotate a bit to the right
     directionToDrive += 20;
+  } else if (checkFrontProximity(proximitySensors)) {
+    //Need to backout a little and sweep
+    returnState = BACK_OUT;
   }
   return returnState;
 }
@@ -261,43 +258,44 @@ SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t* bestDire
 
 void driveAndScan() {
   uint16_t distanceClear = clearDistanceAhead();
-  //Also check for any immediate obstructions, lower down
-  proximitySensors = getProximityState();
-  if (checkFrontProximity(proximitySensors)) {
+  //Check speed, distance and for any immediate obstructions
+  getStatusCmd();
+  bool wheelTrapped = ((periStatus.currentLeftSpeed == 0 || periStatus.currentRightSpeed == 0) && periStatus.distanceTravelled > 0);
+  bool hitSomething = checkFrontProximity(proximitySensors);
+  if (hitSomething || wheelTrapped) {
+    //Weve hit something or one of the wheels aint turning
     drive(STOP, currentDirectionRad, 0);
     currentDriveState = STOPPED;
+  } else if (distanceClear > 100) {
+    //Charge!
+    drive(FORWARD, currentDirectionRad, 125);
+    currentDriveState = DRIVE_FORWARD;
+  } else if (distanceClear < 100 && distanceClear > 50) {
+    //Slow
+    drive(FORWARD, currentDirectionRad, 75);
+    currentDriveState = DRIVE_FORWARD;
+  } else if (distanceClear > MIN_DISTANCE_TO_MOVE) {
+    //Dead slow
+    drive(FORWARD, currentDirectionRad, 50);
+    currentDriveState = DRIVE_FORWARD;
   } else {
-    //TODO - use wheel speed and/or accelerometer to detect being stuck on something - ultrasonic is too inaccurate
-    // if (abs(distanceClear - lastDistanceToObstacle) < 3) {
-    //   //Stuck on something - reverse
-    //   drive(BACK, currentDirectionRad, 50);
-    //   unsigned long backTimer = 0;
-    //   do {
-    //     delay(50);
-    //     wdt_reset();
-    //     backTimer += 50;
-    //   } while (backTimer < 1000);
-    //   drive(STOP, currentDirectionRad, 0);
-    //   currentDriveState = STOPPED;
-    //   return;
-    // } else {
-    if (distanceClear > 100) {
-      //Charge!
-      drive(FORWARD, currentDirectionRad, 125);
-      currentDriveState = DRIVE_FORWARD;
-    } else if (distanceClear < 100 && distanceClear > 50) {
-      //Slow
-      drive(FORWARD, currentDirectionRad, 75);
-      currentDriveState = DRIVE_FORWARD;
-    } else if (distanceClear > MIN_DISTANCE_TO_MOVE) {
-      //Dead slow
-      drive(FORWARD, currentDirectionRad, 50);
-      currentDriveState = DRIVE_FORWARD;
+    //Stop!
+    drive(STOP, currentDirectionRad, 0);
+    currentDriveState = STOPPED;
+  }
+  if (currentDriveState == STOPPED) {
+    sendStopMotorCmd();
+    if (hitSomething) {
+      currentState = adjustDirection();
+    } else if (wheelTrapped) {
+      //Caught on something - backout
+      currentState = BACK_OUT;
     } else {
-      //Stop!
-      drive(STOP, currentDirectionRad, 0);
-      currentDriveState = STOPPED;
+      //Reached the end of the current drive - do another sweep
+      drivingForward = false;
+      currentState = SWEEP;
     }
   }
+
   lastDistanceToObstacle = distanceClear;
 }
