@@ -45,6 +45,7 @@ void loop() {
     calreads++;
   } while ((calibration & 0xC0) != 0xC0);
   Serial.print("    Calibration: ");  // Display 16 bit angle with decimal place
+  Serial.print(calibration);
   Serial.print(" reads: ");
   Serial.print(calreads);
   Serial.print(" : ");
