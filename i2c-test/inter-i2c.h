@@ -5,12 +5,17 @@
 #define REQ_DIRECTION_TO_DRIVE_CMD 0x02  //Requesting the determination of which direction to drive next (based on obstacles in front)
 #define SENDING_OBSTACLES_CMD 0x03       //About to start sending obstacles
 #define NEXT_OBSTACLE_CMD 0x04           //The next obstacle in the list
+#define MOTOR_STARTING_CMD 0x05           //Motor is starting - reset wheel pulse counters
+#define MOTOR_STOPPING_CMD 0x06           //Motor is stopping
+#define REQ_STATUS_CMD 0x07           //Return proximity status, distance travelled, current speed
 
 //Data definitions
 #define FRONT_LEFT_PROX_BIT 0
 #define FRONT_RIGHT_PROX_BIT 1
 #define REAR_LEFT_PROX_BIT 2
 #define REAR_RIGHT_PROX_BIT 3
+#define TOP_FRONT_LEFT_PROX_BIT 4
+#define TOP_FRONT_RIGHT_PROX_BIT 5
 
 #define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
 
@@ -29,6 +34,14 @@ struct ObstaclesCmd {
   uint8_t numOfObstaclesToSend;  //Number of obstacles found that are to be sent for analysis
 };
 
+struct StatusStruct {
+  uint8_t proximityState;  //Status of proximity sensors
+  uint8_t currentLeftSpeed; //Current speed of left wheel in cm/s 
+  uint8_t currentRightSpeed; //Current speed of right wheel in cm/s
+  uint8_t averageSpeed; //Avg speed of current drive in cm/s
+  uint16_t distanceTravelled; //Distance travelled since motored started in cm
+};
+
 uint8_t proximityState = 255;  //Invalid state
 
 bool unoQAvailable = true;
@@ -36,6 +49,7 @@ bool unoQAvailable = true;
 ObstaclesCmd obstaclesCmd;
 ObstacleData obstacle;
 DirectionData direction = { 0 };
+StatusStruct periStatus;
 
 bool waitForResponse() {
   unsigned long waitingTime = 0;
@@ -68,7 +82,11 @@ uint8_t getProximityState() {
       Serial.print(" Rear Left: ");
       Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
       Serial.print(" Rear Right: ");
-      Serial.println((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+      Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+      Serial.print(" Top Front Left: ");
+      Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
+      Serial.print(" Top Front RIGHT: ");
+      Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
     }
     if (Wire.available() > 0) {
       if (Serial) {
@@ -80,7 +98,7 @@ uint8_t getProximityState() {
     }
   } else {
     if (Serial) {
-      Serial.println("Timed out waiting for response from UnoQ for proximity");
+      Serial.println("Timed out from UnoQ");
       unoQAvailable = false;
     }
   }

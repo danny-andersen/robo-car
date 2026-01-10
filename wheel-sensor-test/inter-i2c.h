@@ -156,7 +156,7 @@ uint8_t getProximityState() {
 }
 
 bool checkFrontRightProximity(uint8_t status) {
-  return status & FRONT_RIGHT_PROX_SET;
+  return (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET);
 }
 
 bool getFrontRightProximity() {
@@ -165,7 +165,7 @@ bool getFrontRightProximity() {
 }
 
 bool checkFrontLeftProximity(uint8_t status) {
-  return status & FRONT_LEFT_PROX_SET;
+  return (status & FRONT_LEFT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
 }
 
 bool getFrontLeftProximity() {
