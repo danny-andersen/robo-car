@@ -1,94 +1,47 @@
 #include <Wire.h>
 
-#define CMPS12_ADDRESS 0x60
-#define ANGLE_8 1         // Register to read 8bit angle from
-#define COMPASS 2         // Register to read 16bit compass from
-#define ACCEL 0x0C        // Register to read raw acceleration from
-#define GYRO 0x12         // Register to read raw gyro from
-#define CALIBRATION 0x12  // Register to read calibration level
+#include "cmps-12.h"
+
 
 unsigned char high_byte, low_byte, angle8;
 int8_t pitch, roll;
 int16_t compass;
 int16_t gyrox, gyroy, gyroz, temp;
 int16_t accelX, accelY, accelZ;
-uint8_t calibration;
 
 void setup() {
   Serial.begin(9600);  // Start serial port
-  Serial.println("CMPS12 test - check version");
-  Wire.begin();
-  Wire.beginTransmission(CMPS12_ADDRESS);  //starts communication with CMPS12
-  Wire.write(0x00);                        //Read the software version
-  Wire.endTransmission();
-  Wire.requestFrom(CMPS12_ADDRESS, 1);
-  while (Wire.available() < 1)
-    ;
-  uint8_t vers = Wire.read();
+  bool compassReady = compass_init();
+  Serial.print("Compass ready: ");
+  Serial.println(compassReady);
   Serial.print("CMPS12 Version: ");
-  Serial.println(vers);
+  Serial.println(getVersion());
+  waitUntilCalibrated();
 }
 
 void loop() {
 
-  //Wait until calibrated
-  uint16_t calreads = 0;
-  do {
-    Wire.beginTransmission(CMPS12_ADDRESS);  //starts communication with CMPS12
-    Wire.write(CALIBRATION);                 //Sends the register we wish to start reading from
-    Wire.endTransmission();
-    Wire.requestFrom(CMPS12_ADDRESS, 1);
-    while (Wire.available() < 1)
-      ;  // Wait for all bytes to come back
-    calibration = Wire.read();
-    delay(10);
-    calreads++;
-  } while ((calibration & 0xC0) != 0xC0);
-  Serial.print("    Calibration: ");  // Display 16 bit angle with decimal place
-  Serial.print(calibration);
-  Serial.print(" reads: ");
-  Serial.print(calreads);
-  Serial.print(" : ");
-  Serial.print(calibration, BIN);
-
-  Wire.beginTransmission(CMPS12_ADDRESS);  //starts communication with CMPS12
-  Wire.write(COMPASS);                     //Sends the register we wish to start reading from
-  Wire.endTransmission();
-
-  // Request 5 bytes from the CMPS12
-  // this will give us the 8 bit bearing,
-  // both bytes of the 16 bit bearing, pitch and roll
-  Wire.requestFrom(CMPS12_ADDRESS, 4);
-
-  while (Wire.available() < 4)
-    ;  // Wait for all bytes to come back
-
-  high_byte = Wire.read();
-  low_byte = Wire.read();
-  pitch = Wire.read();
-  roll = Wire.read();
-
-  compass = high_byte;  // Calculate 16 bit angle
-  compass <<= 8;
-  compass += low_byte;
-
+  readAttitude(&pitch, &roll);
   Serial.print("  Roll: ");  // Display roll data
   Serial.print(roll, DEC);
-
   Serial.print("    Pitch: ");  // Display pitch data
   Serial.print(pitch, DEC);
 
-  compass -= 900; //Compass is mounted 90 rotated
-  if (compass < 0) {
-    compass += 3600;
-  }
-
+  compass = readBearing();
   Serial.print("    Bearing: ");  // Display 16 bit angle with decimal place
   Serial.print(compass / 10, DEC);
   Serial.print(".");
   Serial.println(compass % 10, DEC);
 
-
+  readBearingAndAttitude(&compass, &pitch, &roll);
+  Serial.print("  Roll: ");  // Display roll data
+  Serial.print(roll, DEC);
+  Serial.print("    Pitch: ");  // Display pitch data
+  Serial.print(pitch, DEC);
+  Serial.print("    Bearing: ");  // Display 16 bit angle with decimal place
+  Serial.print(compass / 10, DEC);
+  Serial.print(".");
+  Serial.println(compass % 10, DEC);
   // Wire.beginTransmission(CMPS12_ADDRESS);  //starts communication with CMPS12
   // Wire.write(ANGLE_8);                     //Sends the register we wish to start reading from
   // Wire.endTransmission();
@@ -187,5 +140,5 @@ void loop() {
   // Serial.print("  accelZ: ");     // Display 16 bit angle with decimal place
   // Serial.println(accelZ);
 
-  delay(250);  // Short delay before next loop
+  delay(500);  // Short delay before next loop
 }
