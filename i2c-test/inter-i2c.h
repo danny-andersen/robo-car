@@ -16,6 +16,13 @@
 #define REAR_RIGHT_PROX_BIT 3
 #define TOP_FRONT_LEFT_PROX_BIT 4
 #define TOP_FRONT_RIGHT_PROX_BIT 5
+#define FRONT_LEFT_PROX_SET 0x01
+#define FRONT_RIGHT_PROX_SET 0x02
+#define REAR_LEFT_PROX_SET 0x04
+#define REAR_RIGHT_PROX_SET 0x08
+#define TOP_FRONT_LEFT_PROX_SET 0x10
+#define TOP_FRONT_RIGHT_PROX_SET 0x20
+
 
 #define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
 
@@ -39,12 +46,10 @@ struct StatusStruct {
   uint8_t currentLeftSpeed; //Current speed of left wheel in cm/s 
   uint8_t currentRightSpeed; //Current speed of right wheel in cm/s
   uint8_t averageSpeed; //Avg speed of current drive in cm/s
-  uint16_t distanceTravelled; //Distance travelled since motored started in cm
+  uint16_t distanceTravelled; //Distance travelled since motored started in cm (average of left and right)
 };
 
-uint8_t proximityState = 255;  //Invalid state
-
-bool unoQAvailable = true;
+bool nanoAvailable = true;
 
 ObstaclesCmd obstaclesCmd;
 ObstacleData obstacle;
@@ -53,77 +58,123 @@ StatusStruct periStatus;
 
 bool waitForResponse() {
   unsigned long waitingTime = 0;
-  while (Wire.available() == 0 && waitingTime < 1000) {
+  while (Wire.available() == 0 && waitingTime < 500) {
     //Wait for response;
     delay(10);
-    waitingTime += 50;
+    waitingTime += 10;
   }
   return Wire.available() != 0;
 }
 
+bool rxStatus() {
+  bool retStatus = false;
+  Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(periStatus));
+  if (waitForResponse()) {
+    Wire.readBytes((byte *)&periStatus, sizeof(periStatus));
+    retStatus = true;
+    Serial.print("Received status:");
+    Serial.print(" Proximity: ");
+    Serial.print(periStatus.proximityState);
+    Serial.print(" Left Speed: ");
+    Serial.print(periStatus.currentLeftSpeed);
+    Serial.print(" Right Speed: ");
+    Serial.print(periStatus.currentRightSpeed);
+    Serial.print(" Avg Speed: ");
+    Serial.print(periStatus.averageSpeed);
+    Serial.print(" Distance travelled: ");
+    Serial.println(periStatus.distanceTravelled);
+  }
+  return retStatus;
+}
+
+
+void sendStartMotorCmd() {
+  //Send command to peripheral nano that the drive motors are starting
+  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+  Wire.write(MOTOR_STARTING_CMD);
+  Wire.endTransmission();
+}
+
+bool sendStopMotorCmd() {
+  //Send command to peripheral nano that the drive motors are starting
+  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+  Wire.write(MOTOR_STOPPING_CMD);
+  Wire.endTransmission();
+  //Request a full status response
+  return rxStatus();
+}
+
+bool getStatusCmd() {
+  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+  Wire.write(REQ_STATUS_CMD);
+  Wire.endTransmission();
+  //Should get a full status response
+  return rxStatus();
+
+}
+
 uint8_t getProximityState() {
   //Send command to peri uno to get status of all proximity sensors
-
   Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
   Wire.write(REQ_PROXIMITY_STATE_CMD);
   Wire.endTransmission();
   //Request data
   Wire.requestFrom(UNO_PERIPHERAL_ADDR, 1);
+  uint8_t proximityState = 0xFF; //Invalid state
   if (waitForResponse()) {
-    unoQAvailable = true;
     proximityState = Wire.read();
-    if (Serial) {
-      Serial.print("Rx proximity state: ");
-      Serial.println(proximityState);  // print the character
-      Serial.print("Front Left: ");
-      Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
-      Serial.print(" Front Right: ");
-      Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
-      Serial.print(" Rear Left: ");
-      Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
-      Serial.print(" Rear Right: ");
-      Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
-      Serial.print(" Top Front Left: ");
-      Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
-      Serial.print(" Top Front RIGHT: ");
-      Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
-    }
-    if (Wire.available() > 0) {
-      if (Serial) {
-        Serial.print("Still have bytes to read?? : ");
-        Serial.println(Wire.available());
-      }
-      while (Wire.available() > 0) Serial.print(Wire.read());
-      Serial.println();
-    }
+    // if (Serial) {
+    //   Serial.print("Rx proximity state: ");
+    //   Serial.println(proximityState);  // print the character
+    //   Serial.print("Front Left: ");
+    //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
+    //   Serial.print(" Front Right: ");
+    //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
+    //   Serial.print(" Rear Left: ");
+    //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
+    //   Serial.print(" Rear Right: ");
+    //   Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+    //   Serial.print(" Top Front Left: ");
+    //   Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
+    //   Serial.print(" Top Front RIGHT: ");
+    //   Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
+    // }
+    // if (Wire.available() > 0) {
+    //   if (Serial) {
+    //     Serial.print("Still have bytes to read?? : ");
+    //     Serial.println(Wire.available());
+    //   }
+    //   while (Wire.available() > 0) Serial.print(Wire.read());
+    //   Serial.println();
+    // }
   } else {
     if (Serial) {
       Serial.println("Timed out from UnoQ");
-      unoQAvailable = false;
     }
   }
+  return proximityState;
 }
 
 bool checkFrontRightProximity(uint8_t status) {
-  return (status & FRONT_RIGHT_PROX_BIT);
+  return (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET);
 }
 
 bool getFrontRightProximity() {
   uint8_t status = getProximityState();
-  return checkFrontRightProximity;
+  return checkFrontRightProximity(status);
 }
 
 bool checkFrontLeftProximity(uint8_t status) {
-  return (status & FRONT_LEFT_PROX_BIT);
+  return (status & FRONT_LEFT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
 }
 
 bool getFrontLeftProximity() {
   uint8_t status = getProximityState();
-  return checkFrontLeftProximity;
+  return checkFrontLeftProximity(status);
 }
 
 bool checkFrontProximity(uint8_t status) {
-  return (status & FRONT_LEFT_PROX_BIT) || (status & FRONT_RIGHT_PROX_BIT);
+  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
 }
 
 bool getFrontProximity() {
@@ -131,19 +182,31 @@ bool getFrontProximity() {
   return checkFrontProximity(status);
 }
 
+bool checkRearRightProximity(uint8_t status) {
+  return status & REAR_RIGHT_PROX_SET;
+}
+
 bool getRearRightProximity() {
   uint8_t status = getProximityState();
-  return status & REAR_RIGHT_PROX_BIT;
+  return checkRearRightProximity(status);
+}
+
+bool checkRearLeftProximity(uint8_t status) {
+  return status & REAR_LEFT_PROX_SET;
 }
 
 bool getRearLeftProximity() {
   uint8_t status = getProximityState();
-  return status & REAR_LEFT_PROX_BIT;
+  return checkRearLeftProximity(status);
+}
+
+bool checkRearProximity(uint8_t status) {
+  return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET);
 }
 
 bool getRearProximity() {
   uint8_t status = getProximityState();
-  return (status & REAR_LEFT_PROX_BIT) || (status & REAR_RIGHT_PROX_BIT);
+  return checkRearProximity(status);
 }
 
 void sendObstacles(uint16_t heading) {

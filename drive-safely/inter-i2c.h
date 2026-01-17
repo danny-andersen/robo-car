@@ -49,7 +49,7 @@ struct StatusStruct {
   uint16_t distanceTravelled; //Distance travelled since motored started in cm (average of left and right)
 };
 
-bool unoQAvailable = true;
+bool nanoAvailable = true;
 
 ObstaclesCmd obstaclesCmd;
 ObstacleData obstacle;
@@ -123,34 +123,34 @@ uint8_t getProximityState() {
   uint8_t proximityState = 0xFF; //Invalid state
   if (waitForResponse()) {
     proximityState = Wire.read();
-    if (Serial) {
-      Serial.print("Rx proximity state: ");
-      Serial.println(proximityState);  // print the character
-      Serial.print("Front Left: ");
-      Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
-      Serial.print(" Front Right: ");
-      Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
-      Serial.print(" Rear Left: ");
-      Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
-      Serial.print(" Rear Right: ");
-      Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
-      Serial.print(" Top Front Left: ");
-      Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
-      Serial.print(" Top Front RIGHT: ");
-      Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
-    }
-    if (Wire.available() > 0) {
-      if (Serial) {
-        Serial.print("Still have bytes to read?? : ");
-        Serial.println(Wire.available());
-      }
-      while (Wire.available() > 0) Serial.print(Wire.read());
-      Serial.println();
-    }
+    // if (Serial) {
+    //   Serial.print("Rx proximity state: ");
+    //   Serial.println(proximityState);  // print the character
+    //   Serial.print("Front Left: ");
+    //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
+    //   Serial.print(" Front Right: ");
+    //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
+    //   Serial.print(" Rear Left: ");
+    //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
+    //   Serial.print(" Rear Right: ");
+    //   Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+    //   Serial.print(" Top Front Left: ");
+    //   Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
+    //   Serial.print(" Top Front RIGHT: ");
+    //   Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
+    // }
+    // if (Wire.available() > 0) {
+    //   if (Serial) {
+    //     Serial.print("Still have bytes to read?? : ");
+    //     Serial.println(Wire.available());
+    //   }
+    //   while (Wire.available() > 0) Serial.print(Wire.read());
+    //   Serial.println();
+    // }
   } else {
-    if (Serial) {
-      Serial.println("Timed out from UnoQ");
-    }
+    // if (Serial) {
+    //   Serial.println("Timed out from Nano");
+    // }
   }
   return proximityState;
 }
