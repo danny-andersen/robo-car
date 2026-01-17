@@ -1,7 +1,9 @@
 #include <avr/wdt.h>
 
 #include "ground-tracking.h"
-#include "compass.h"
+// #include "compass.h"
+#include "Wire.h"
+#include "cmps-12.h"
 #include "accelerometer.h"
 #include "inter-i2c.h"
 #include "motor-driver.h"
@@ -18,7 +20,6 @@ Robot_State currentState = INIT;
 Drive_State currentDriveState = STOPPED;
 
 uint16_t furthestDistance = 0;
-uint16_t lastDistanceToObstacle = 10000;
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
 Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];       // up to 20 arcs
 uint8_t furthestObjectIndex = 0;
@@ -52,7 +53,7 @@ void setup() {
     getAccelerometerEuler();
     currentDirectionDeg = eulerDeg[0];  //Before we work out which direction to turn, remember what straightahead is
     currentState = SWEEP;
-    currentHeading = getHeading();
+    currentHeading = readBearing() / 10;
     // if (Serial) {
     //   Serial.print("Gyro straightahead = ");
     //   Serial.print(currentDirectionDeg);
@@ -60,9 +61,9 @@ void setup() {
   }
   motor_Init();
   distanceSensorInit();
-  //Check to see if peripheral uno ready
+  //Check to see if peripheral nano ready
   proximitySensors = getProximityState();
-  if (!unoQAvailable) {
+  if (!nanoAvailable) {
     // if (Serial) Serial.print("Peripheral Uno not ready");
   }
   delay(1000);
@@ -113,7 +114,6 @@ void loop() {
       } else {
         //Returns when car is pointed in the right direction
         currentState = DRIVE;
-        lastDistanceToObstacle = 10000;
       }
       break;
     case UTURN_SWEEP:
@@ -164,13 +164,13 @@ void resetGyro() {
 }
 
 Robot_State adjustDirection() {
-  Robot_State returnState = DRIVE;
+  Robot_State returnState = ROTATING;
   //Something low down caused the stop
   if (checkFrontRightProximity(proximitySensors) && !checkFrontLeftProximity(proximitySensors)) {
     //Rotate a bit left
     directionToDrive -= 20;
 
-  } else if (checkFrontLeftProximity(proximitySensors) && !checkFrontRightProximity(proximitySensors) ) {
+  } else if (checkFrontLeftProximity(proximitySensors) && !checkFrontRightProximity(proximitySensors)) {
     //Rotate a bit to the right
     directionToDrive += 20;
   } else if (checkFrontProximity(proximitySensors)) {
@@ -261,11 +261,13 @@ void driveAndScan() {
   //Check speed, distance and for any immediate obstructions
   getStatusCmd();
   bool wheelTrapped = ((periStatus.currentLeftSpeed == 0 || periStatus.currentRightSpeed == 0) && periStatus.distanceTravelled > 0);
+  proximitySensors = getProximityState();
   bool hitSomething = checkFrontProximity(proximitySensors);
-  if (hitSomething || wheelTrapped) {
-    //Weve hit something or one of the wheels aint turning
-    drive(STOP, currentDirectionRad, 0);
-    currentDriveState = STOPPED;
+  if (hitSomething) {
+    currentState = adjustDirection();
+  } else if (wheelTrapped) {
+    ////Weve hit something or one of the wheels aint turning
+    currentState = BACK_OUT;
   } else if (distanceClear > 100) {
     //Charge!
     drive(FORWARD, currentDirectionRad, 125);
@@ -282,20 +284,9 @@ void driveAndScan() {
     //Stop!
     drive(STOP, currentDirectionRad, 0);
     currentDriveState = STOPPED;
-  }
-  if (currentDriveState == STOPPED) {
     sendStopMotorCmd();
-    if (hitSomething) {
-      currentState = adjustDirection();
-    } else if (wheelTrapped) {
-      //Caught on something - backout
-      currentState = BACK_OUT;
-    } else {
-      //Reached the end of the current drive - do another sweep
-      drivingForward = false;
-      currentState = SWEEP;
-    }
+    //Reached the end of the current drive - do another sweep
+    drivingForward = false;
+    currentState = SWEEP;
   }
-
-  lastDistanceToObstacle = distanceClear;
 }
