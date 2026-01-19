@@ -20,6 +20,7 @@ int16_t accelX, accelY, accelZ;
 
 void setup() {
   Serial.begin(9600);  // Start serial port
+  delay(3000);
   bool compassReady = compass_init();
   if (Serial) {
     Serial.print("Compass ready: ");
@@ -28,12 +29,9 @@ void setup() {
     Serial.println(getVersion());
   }
   waitUntilCalibrated();
-  delay(1000);
-  rotateTo(0);  //Go to North - this is used to check calibration
-  calibrateCompass();
-  waitUntilCalibrated();
-  delay(1000);
-  rotateTo(0);  //Go to North - this is used to check calibration
+  Serial.print("Calibration status = ");
+  Serial.println(getCalibrationStatus(), HEX);
+  delay(5000);
 }
 
 void loop() {
@@ -46,7 +44,7 @@ void loop() {
 
   compass = readBearing();
   Serial.print("    Bearing: ");  // Display 16 bit angle with decimal place
-  Serial.print(compass/10, DEC);
+  Serial.print(compass / 10, DEC);
   Serial.print(".");
   Serial.println(compass % 10, DEC);
 
