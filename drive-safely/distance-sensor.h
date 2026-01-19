@@ -159,3 +159,51 @@ int findObjectsInSweep(uint16_t arr[], int size, Arc arcs[], int maxArcs) {
   return arcCount;  // number of arcs stored
 }
 
+//Analyse the distance of the objects found in the sweep to determine
+//(a) whether is safe to drive and which direction
+//(b) Or whether we need to turn around as we are blocked in
+//This may need a reverse if there is no room to turn around
+SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t* bestDirectionIndex) {
+  //Determine greatest distance
+  uint8_t furthestObjectIndex = 0;
+  uint8_t closestObjectIndex = 0;
+  uint8_t widthOfObject = arcs[0].width;
+  SWEEP_STATUS retStatus = CLEAR_TO_DRIVE;
+  for (int i = 1; i < maxObjects; i++) {
+    if (arcs[i].avgDistance == 0) {
+      //null entry
+      continue;
+    }
+    if (arcs[i].avgDistance > arcs[furthestObjectIndex].avgDistance) {
+      furthestObjectIndex = i;
+    }
+    if (arcs[i].avgDistance < arcs[closestObjectIndex].avgDistance) {
+      closestObjectIndex = i;
+    }
+  }
+  //Now re-check best object using the width
+  for (int i = 1; i < maxObjects; i++) {
+    if (arcs[i].avgDistance == 0) {
+      //null entry
+      continue;
+    }
+    if (arcs[i].avgDistance == arcs[furthestObjectIndex].avgDistance && arcs[i].width > widthOfObject) {
+      //Object is the same distance away (probably max) but is wider - go to that one
+      furthestObjectIndex = i;
+    }
+  }
+  if (arcs[furthestObjectIndex].avgDistance <= MIN_DISTANCE_AHEAD) {
+    //No point going any further, turn around and do another sweep
+
+    //Check if any objects are within minimum safe distance, if so need to back out rather than rotate
+    // if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
+    //   retStatus = CANNOT_TURN;
+    // } else {
+    retStatus = BLOCKED_AHEAD;
+    // }
+  }
+  *bestDirectionIndex = furthestObjectIndex;
+  return retStatus;
+}
+
+

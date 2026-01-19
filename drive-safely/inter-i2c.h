@@ -5,9 +5,9 @@
 #define REQ_DIRECTION_TO_DRIVE_CMD 0x02  //Requesting the determination of which direction to drive next (based on obstacles in front)
 #define SENDING_OBSTACLES_CMD 0x03       //About to start sending obstacles
 #define NEXT_OBSTACLE_CMD 0x04           //The next obstacle in the list
-#define MOTOR_STARTING_CMD 0x05           //Motor is starting - reset wheel pulse counters
-#define MOTOR_STOPPING_CMD 0x06           //Motor is stopping
-#define REQ_STATUS_CMD 0x07           //Return proximity status, distance travelled, current speed
+#define MOTOR_STARTING_CMD 0x05          //Motor is starting - reset wheel pulse counters
+#define MOTOR_STOPPING_CMD 0x06          //Motor is stopping
+#define REQ_STATUS_CMD 0x07              //Return proximity status, distance travelled, current speed
 
 //Data definitions
 #define FRONT_LEFT_PROX_BIT 0
@@ -42,11 +42,11 @@ struct ObstaclesCmd {
 };
 
 struct StatusStruct {
-  uint8_t proximityState;  //Status of proximity sensors
-  uint8_t currentLeftSpeed; //Current speed of left wheel in cm/s 
-  uint8_t currentRightSpeed; //Current speed of right wheel in cm/s
-  uint8_t averageSpeed; //Avg speed of current drive in cm/s
-  uint16_t distanceTravelled; //Distance travelled since motored started in cm (average of left and right)
+  uint8_t proximityState;      //Status of proximity sensors
+  uint8_t currentLeftSpeed;    //Current speed of left wheel in cm/s
+  uint8_t currentRightSpeed;   //Current speed of right wheel in cm/s
+  uint8_t averageSpeed;        //Avg speed of current drive in cm/s
+  uint16_t distanceTravelled;  //Distance travelled since motored started in cm (average of left and right)
 };
 
 bool nanoAvailable = true;
@@ -68,21 +68,24 @@ bool waitForResponse() {
 
 bool rxStatus() {
   bool retStatus = false;
+
   Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(periStatus));
   if (waitForResponse()) {
     Wire.readBytes((byte *)&periStatus, sizeof(periStatus));
-    retStatus = true;
-    Serial.print("Received status:");
-    Serial.print(" Proximity: ");
-    Serial.print(periStatus.proximityState);
-    Serial.print(" Left Speed: ");
-    Serial.print(periStatus.currentLeftSpeed);
-    Serial.print(" Right Speed: ");
-    Serial.print(periStatus.currentRightSpeed);
-    Serial.print(" Avg Speed: ");
-    Serial.print(periStatus.averageSpeed);
-    Serial.print(" Distance travelled: ");
-    Serial.println(periStatus.distanceTravelled);
+    if (periStatus.proximityState != 0xFF) {
+      retStatus = true;
+    }
+    // Serial.print("Received status:");
+    // Serial.print(" Proximity: ");
+    // Serial.print(periStatus.proximityState);
+    // Serial.print(" Left Speed: ");
+    // Serial.print(periStatus.currentLeftSpeed);
+    // Serial.print(" Right Speed: ");
+    // Serial.print(periStatus.currentRightSpeed);
+    // Serial.print(" Avg Speed: ");
+    // Serial.print(periStatus.averageSpeed);
+    // Serial.print(" Distance travelled: ");
+    // Serial.println(periStatus.distanceTravelled);
   }
   return retStatus;
 }
@@ -110,48 +113,49 @@ bool getStatusCmd() {
   Wire.endTransmission();
   //Should get a full status response
   return rxStatus();
-
 }
 
 uint8_t getProximityState() {
   //Send command to peri uno to get status of all proximity sensors
-  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
-  Wire.write(REQ_PROXIMITY_STATE_CMD);
-  Wire.endTransmission();
-  //Request data
-  Wire.requestFrom(UNO_PERIPHERAL_ADDR, 1);
-  uint8_t proximityState = 0xFF; //Invalid state
-  if (waitForResponse()) {
-    proximityState = Wire.read();
-    // if (Serial) {
-    //   Serial.print("Rx proximity state: ");
-    //   Serial.println(proximityState);  // print the character
-    //   Serial.print("Front Left: ");
-    //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
-    //   Serial.print(" Front Right: ");
-    //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
-    //   Serial.print(" Rear Left: ");
-    //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
-    //   Serial.print(" Rear Right: ");
-    //   Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
-    //   Serial.print(" Top Front Left: ");
-    //   Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
-    //   Serial.print(" Top Front RIGHT: ");
-    //   Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
-    // }
-    // if (Wire.available() > 0) {
-    //   if (Serial) {
-    //     Serial.print("Still have bytes to read?? : ");
-    //     Serial.println(Wire.available());
-    //   }
-    //   while (Wire.available() > 0) Serial.print(Wire.read());
-    //   Serial.println();
-    // }
-  } else {
-    // if (Serial) {
-    //   Serial.println("Timed out from Nano");
-    // }
-  }
+  uint8_t proximityState = 0xFF;  //Invalid state
+  do {
+    Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+    Wire.write(REQ_PROXIMITY_STATE_CMD);
+    Wire.endTransmission();
+    //Request data
+    Wire.requestFrom(UNO_PERIPHERAL_ADDR, 1);
+    if (waitForResponse()) {
+      proximityState = Wire.read();
+      // if (Serial) {
+      //   Serial.print("Rx proximity state: ");
+      //   Serial.println(proximityState);  // print the character
+      //   Serial.print("Front Left: ");
+      //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Front Right: ");
+      //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
+      //   Serial.print(" Rear Left: ");
+      //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Rear Right: ");
+      //   Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+      //   Serial.print(" Top Front Left: ");
+      //   Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Top Front RIGHT: ");
+      //   Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
+      // }
+      // if (Wire.available() > 0) {
+      //   if (Serial) {
+      //     Serial.print("Still have bytes to read?? : ");
+      //     Serial.println(Wire.available());
+      //   }
+      //   while (Wire.available() > 0) Serial.print(Wire.read());
+      //   Serial.println();
+      // }
+    } else {
+      // if (Serial) {
+      //   Serial.println("Timed out from Nano");
+      // }
+    }
+  } while (proximityState == 0xFF);
   return proximityState;
 }
 
@@ -249,5 +253,3 @@ void getDirectionToDrive() {
     if (Serial) Serial.println("Timed out waiting for response from Uno peri for direction");
   }
 }
-
-
