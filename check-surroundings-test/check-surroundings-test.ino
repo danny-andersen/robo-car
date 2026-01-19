@@ -1,5 +1,7 @@
 #include <avr/wdt.h>
-#include "accelerometer.h"
+#include <Wire.h>
+
+#include "cmps-12.h"
 #include "robo-car.h"
 
 bool leftGround() {
@@ -15,38 +17,36 @@ Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];       // up to 20 arcs
 uint8_t furthestObjectIndex = 0;
 
 int16_t directionToDrive = 0;
-int16_t currentDirectionDeg = 0;  //This is the direction to rotate to and drive forward in, in degrees. 0 is defined as straightahead when the device was booted
+int16_t currentHeading = 0;  //This is the direction to rotate to and drive forward in, in degrees. 0 is defined as straightahead when the device was booted
 
 Robot_State currentState = INIT;
 Drive_State currentDriveState = STOPPED;
 
 void setup() {
   Serial.begin(9600);
-  
-  accelerometer_init();
-  getAccelerometerEuler();
-  currentDirectionDeg = eulerDeg[0];  //Before we work out which direction to turn, remember what straightahead is
+  Wire.begin();
+
+  compass_init();
+  currentHeading = getCompassBearing();  //Before we work out which direction to turn, remember what straightahead is
 
   distanceSensorInit();
 
   currentState = sweepAndFindDirection();
+  if (Serial) {
+    Serial.print("STATE: ");
+    Serial.println(currentState);
+  }
 }
 
 void loop() {
-
 }
 
 Robot_State sweepAndFindDirection() {
   if (Serial) {
     Serial.print("Sweeping, straightahead = ");
-    Serial.println(currentDirectionDeg);
+    Serial.println(currentHeading);
   }
   sweep(distances);
-  for (int i = 0; i<180; i++) {
-    Serial.print(i);
-    Serial.print(" : ");
-    Serial.println(distances[i]);
-  }
   // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
   for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
     arcs[i].avgDistance = 0;
@@ -73,18 +73,20 @@ Robot_State sweepAndFindDirection() {
       Serial.println(arcs[j].avgDistance);
     }
   }
+
   SWEEP_STATUS sweepStatus = checkSurroundings(arcs, numObjects, &furthestObjectIndex);
   if (Serial) {
     Serial.print("Sweep status: ");
     Serial.println(sweepStatus);
   }
+
   if (sweepStatus == CLEAR_TO_DRIVE) {
     furthestDistance = arcs[furthestObjectIndex].avgDistance;
     int16_t servoDirection = arcs[furthestObjectIndex].centreDirection;  //This is the degree relative to where we are currently pointed, where 90 is straightahead
-    int16_t relDirection = SERVO_CENTRE - servoDirection;            //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
+    int16_t relDirection = SERVO_CENTRE - servoDirection;                //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
     //Convert to direction based on what the accelerometer things (where 0 is the original starting direction)
     //We need to convert that to a value relative to the accelerometer as it is our only constant point of reference
-    directionToDrive = currentDirectionDeg + relDirection;
+    directionToDrive = normalise(currentHeading + relDirection);
     currentState = ROTATING;
     if (Serial) {
       Serial.print("Distance to drive: ");
@@ -94,8 +96,9 @@ Robot_State sweepAndFindDirection() {
       Serial.print(" in Direction: ");
       Serial.print(directionToDrive);
       Serial.print(" Current direction: ");
-      Serial.println(currentDirectionDeg);
+      Serial.println(currentHeading);
     }
+
   } else if (sweepStatus == BLOCKED_AHEAD) {
     //Turn 180 and sweep
     currentState = UTURN_SWEEP;
@@ -104,4 +107,3 @@ Robot_State sweepAndFindDirection() {
   }
   return currentState;
 }
-
