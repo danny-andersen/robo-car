@@ -1,5 +1,8 @@
 #include <avr/wdt.h>
-#include "accelerometer.h"
+#include "Wire.h"
+
+// #include "accelerometer.h"
+#include "cmps-12.h"
 #include "inter-i2c.h"
 #include "robo-car.h"
 
@@ -7,61 +10,70 @@ bool leftGround() {
   return false;
 }
 #include "motor-driver.h"
-#include "distance-sensor.h"
-
-uint16_t furthestDistance = 0;
-uint16_t lastDistanceToObstacle = 10000;
-uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
-Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];       // up to 20 arcs
-uint8_t furthestObjectIndex = 0;
+#include "movement.h"
 
 int16_t directionToDrive = 0;
-int16_t currentDirectionDeg = 0;  //This is the direction to rotate to and drive forward in, in degrees. 0 is defined as straightahead when the device was booted
+int16_t currentDirection = 0;  //This is the direction to rotate to and drive forward in, in degrees. 0 is defined as straightahead when the device was booted
 
 Robot_State currentState = INIT;
 Drive_State currentDriveState = STOPPED;
 
 void setup() {
-  Serial.begin(9600);
-  Wire.begin();
-  
-  accelerometer_init();
-  getAccelerometerEuler();
-  currentDirectionDeg = eulerDeg[0];  //Before we work out which direction to turn, remember what straightahead is
+  // Serial.begin(9600);
+  delay(3000);
 
   motor_Init();
-  distanceSensorInit();
+  Serial.println("Motor ready");
 
-  rotateTo(90);
-  delay(1000);
-  rotateTo(180);
-  delay(1000);
-  rotateTo(270);
-  delay(1000);
-  rotateTo(360);
-  delay(1000);
-  rotateTo(45);
-  delay(1000);
-  rotateTo(135);
-  delay(1000);
-  rotateTo(-135);
-  delay(1000);
-  rotateTo(-45);
-  delay(1000);
-
-  if (Serial) Serial.println("U turn...");
-  rotateTo(0);
-  delay(1000);
-  aboutTurn();
-  delay(1000);
-  aboutTurn();
-  delay(1000);
-  aboutTurn();
-  delay(1000);
-  aboutTurn();
-
+  Wire.begin();
+  bool compassReady = compass_init();
+  if (Serial) {
+    Serial.print("Compass: ");
+    Serial.println(compassReady);
   }
+  waitUntilCalibrated();
+
+  calibrateCompass();
+
+  delay(1000);
+  if (Serial) Serial.println("Pointing north");
+  rotateTo(0);  //Start by pointing north
+  delay(3000);
+  // Serial.println("Rotating to 90");
+  // rotateTo(90);
+  // delay(1000);
+  // rotateTo(180);
+  // delay(1000);
+  // rotateTo(270);
+  // delay(1000);
+  // rotateTo(360);
+  // delay(1000);
+  // rotateTo(45);
+  // delay(1000);
+  // rotateTo(135);
+  // delay(1000);
+  // rotateTo(-135);
+  // delay(1000);
+  // rotateTo(-45);
+  // delay(1000);
+
+  // Serial.println("Pointing north");
+  // rotateTo(0);
+  // delay(3000);
+  if (Serial) Serial.println("U turn...");
+  aboutTurn();
+  delay(1000);
+  if (Serial) Serial.println("U turn...");
+  aboutTurn();
+  delay(1000);
+  if (Serial) Serial.println("U turn...");
+  aboutTurn();
+  delay(1000);
+  if (Serial) Serial.println("U turn...");
+  aboutTurn();
+  delay(1000);
+  rotateTo(0);  //Finish by pointing north
+}
 
 void loop() {
-
 }

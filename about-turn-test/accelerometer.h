@@ -72,6 +72,41 @@ bool accelerometer_init() {
   }
 }
 
+const float minmax = M_PI - 0.175;
+
+// Make sure direction is in the range -180 to +180
+// Which is what the accelerometer returns
+int16_t normalise(int16_t dirn) {
+  if (dirn > 360) {
+    //Convert so from 0 - 360
+    dirn = dirn % 360;
+  }
+  if (dirn > 180) {
+    //Flipped over to negative
+    dirn -= 360;
+  }
+  if (dirn < -180) {
+    //Flipped over to positive
+    dirn += 360;
+  }
+  // 180 cant be achieved on accelerometer
+  // Shift into (-179, 179]
+  if (dirn > 179)
+    dirn = 179;
+  else if (dirn < -179)
+    dirn = -179;
+  return dirn;
+}
+
+float normalise_rad(float dirn) {
+  dirn = fmod(dirn, M_PI);  // reduce to [0, π) or (-π, π)
+  if (dirn > minmax)
+    dirn = minmax;
+  else if (dirn <= -minmax)
+    dirn = -minmax;
+  return dirn;
+}
+
 bool getAccelerometerEuler() {
   if (mpu.dmpGetCurrentFIFOPacket(FIFOBuffer)) {
     mpu.dmpGetQuaternion(&q, FIFOBuffer);
