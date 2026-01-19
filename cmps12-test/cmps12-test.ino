@@ -1,6 +1,15 @@
+#include <avr/wdt.h>
 #include <Wire.h>
 
 #include "cmps-12.h"
+#include "inter-i2c.h"
+#include "robo-car.h"
+
+bool leftGround() {
+  return false;
+}
+#include "motor-driver.h"
+#include "movement.h"
 
 
 unsigned char high_byte, low_byte, angle8;
@@ -12,11 +21,19 @@ int16_t accelX, accelY, accelZ;
 void setup() {
   Serial.begin(9600);  // Start serial port
   bool compassReady = compass_init();
-  Serial.print("Compass ready: ");
-  Serial.println(compassReady);
-  Serial.print("CMPS12 Version: ");
-  Serial.println(getVersion());
+  if (Serial) {
+    Serial.print("Compass ready: ");
+    Serial.println(compassReady);
+    Serial.print("CMPS12 Version: ");
+    Serial.println(getVersion());
+  }
   waitUntilCalibrated();
+  delay(1000);
+  rotateTo(0);  //Go to North - this is used to check calibration
+  calibrateCompass();
+  waitUntilCalibrated();
+  delay(1000);
+  rotateTo(0);  //Go to North - this is used to check calibration
 }
 
 void loop() {
@@ -29,7 +46,7 @@ void loop() {
 
   compass = readBearing();
   Serial.print("    Bearing: ");  // Display 16 bit angle with decimal place
-  Serial.print(compass / 10, DEC);
+  Serial.print(compass/10, DEC);
   Serial.print(".");
   Serial.println(compass % 10, DEC);
 

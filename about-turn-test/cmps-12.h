@@ -106,10 +106,8 @@ float getCompassBearingRads() {
 // Normalise direction in the range 0-360
 // Which is what the accelerometer returns
 int16_t normalise(int16_t dirn) {
-  if (dirn > 360) {
-    //Convert so from 0 - 360
-    dirn = dirn % 360;
-  }
+  //Convert so from 0 - 360
+  dirn = dirn % 360;
   if (dirn < 0) {
     dirn += 360;
   }
@@ -134,8 +132,11 @@ void readAttitude(int8_t *pitch, int8_t *roll) {
   while (Wire.available() < 2)
     ;  // Wait for all bytes to come back
 
-  *pitch = Wire.read();
+  //Although the first value is actually the pitch register, the way the device is mounted this is actually roll
   *roll = Wire.read();
+  *pitch = Wire.read();
+  //Allow for mounting error
+  *pitch -= 5;
 }
 
 bool rollingOrPitching() {
@@ -161,8 +162,11 @@ void readBearingAndAttitude(int16_t *compass, int8_t *pitch, int8_t *roll) {
 
   uint8_t high_byte = Wire.read();
   uint8_t low_byte = Wire.read();
-  *pitch = Wire.read();
+  //Although the first value is actually the pitch register, the way the device is mounted this is actually roll
   *roll = Wire.read();
+  *pitch = Wire.read();
+  //Allow for mounting error
+  *pitch -= 5;
 
   *compass = high_byte;  // Calculate 16 bit angle
   *compass <<= 8;
@@ -173,4 +177,3 @@ void readBearingAndAttitude(int16_t *compass, int8_t *pitch, int8_t *roll) {
     *compass += 3600;
   }
 }
-

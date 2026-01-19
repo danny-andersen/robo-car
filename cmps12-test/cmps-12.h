@@ -1,3 +1,5 @@
+//Functions for the CMPS-12 compass on an IC2 bus
+
 #define CMPS12_ADDRESS 0x60
 #define COMPASS_8 0x01    // Register to read 8bit compass from
 #define COMPASS 0x02      // Register to read 16bit compass from
@@ -30,7 +32,7 @@ bool compass_init() {
       Serial.println(status);
     }
   } else {
-      retStatus = true;
+    retStatus = true;
   }
   return retStatus;
 }
@@ -45,12 +47,12 @@ void waitUntilCalibrated() {
     calreads++;
   } while ((calibration & 0xC0) != 0xC0);
 
-  Serial.print("Calibration: ");  // Display 16 bit angle with decimal place
-  Serial.print(calibration);
-  Serial.print(" reads: ");
-  Serial.print(calreads);
-  Serial.print(" : ");
-  Serial.println(calibration, BIN);
+  // Serial.print("Calibration: ");  // Display 16 bit angle with decimal place
+  // Serial.print(calibration);
+  // Serial.print(" reads: ");
+  // Serial.print(calreads);
+  // Serial.print(" : ");
+  // Serial.println(calibration, BIN);
 }
 
 uint8_t getVersion() {
@@ -89,8 +91,33 @@ int16_t readBearing() {
   if (compass < 0) {
     compass += 3600;
   }
-
   return compass;
+}
+
+int16_t getCompassBearing() {
+  return (readBearing() / 10);
+}
+
+float getCompassBearingRads() {
+  int16_t bearing = readBearing();
+  return (bearing / 10.0) * (M_PI / 180.0);
+}
+
+// Normalise direction in the range 0-360
+// Which is what the accelerometer returns
+int16_t normalise(int16_t dirn) {
+  //Convert so from 0 - 360
+  dirn = dirn % 360;
+  if (dirn < 0) {
+    dirn += 360;
+  }
+  return dirn;
+}
+
+//Normalise direction to 0 - 2*pi
+float normalise_rad(float dirn) {
+  dirn = fmod(dirn, TWO_PI);
+  return dirn;
 }
 
 void readAttitude(int8_t *pitch, int8_t *roll) {
@@ -105,9 +132,21 @@ void readAttitude(int8_t *pitch, int8_t *roll) {
   while (Wire.available() < 2)
     ;  // Wait for all bytes to come back
 
-  *pitch = Wire.read();
+  //Although the first value is actually the pitch register, the way the device is mounted this is actually roll
   *roll = Wire.read();
+  *pitch = Wire.read();
+  //Allow for mounting error
+  *pitch -= 5;
 }
+
+bool rollingOrPitching() {
+  uint8_t currentRoll = 0;
+  uint8_t currentPitch = 0;
+  readAttitude(&currentPitch, &currentRoll);
+
+  return (abs(currentRoll) >= 5 || abs(currentPitch) >= 5);
+}
+
 
 void readBearingAndAttitude(int16_t *compass, int8_t *pitch, int8_t *roll) {
   Wire.beginTransmission(CMPS12_ADDRESS);  //starts communication with CMPS12
@@ -123,8 +162,11 @@ void readBearingAndAttitude(int16_t *compass, int8_t *pitch, int8_t *roll) {
 
   uint8_t high_byte = Wire.read();
   uint8_t low_byte = Wire.read();
-  *pitch = Wire.read();
+  //Although the first value is actually the pitch register, the way the device is mounted this is actually roll
   *roll = Wire.read();
+  *pitch = Wire.read();
+  //Allow for mounting error
+  *pitch -= 5;
 
   *compass = high_byte;  // Calculate 16 bit angle
   *compass <<= 8;
