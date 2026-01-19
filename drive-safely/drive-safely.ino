@@ -1,21 +1,19 @@
 #include <avr/wdt.h>
 
 #include "ground-tracking.h"
-// #include "compass.h"
 #include "Wire.h"
 #include "cmps-12.h"
-#include "accelerometer.h"
 #include "inter-i2c.h"
 #include "motor-driver.h"
+#include "movement.h"
 #include "robo-car.h"
 #include "distance-sensor.h"
 
 
 unsigned long driveTimer = 0;
 int16_t directionToDrive = 0;
-int16_t currentDirectionDeg = 0;  //This is the direction to rotate to and drive forward in, in degrees. 0 is defined as straightahead when the device was booted
-uint16_t currentHeading = 0;      //Current compass heading pointed in
-float currentDirectionRad = 0;    //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
+uint16_t currentHeading = 0;    //Current compass heading pointed in
+float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
 Robot_State currentState = INIT;
 Drive_State currentDriveState = STOPPED;
 
@@ -36,38 +34,19 @@ void setup() {
   Wire.begin();
   delay(3000);  //Let everything settle before initialising accelerometer
   compassReady = compass_init();
-  // if (Serial) {
-  //   if (compassReady) {
-  //     currentHeading = getHeading();
-  //     Serial.print("Compass: ");
-  //     Serial.println(currentHeading);
-  //   } else {
-  //     Serial.println("Compass not available");
-  //   }
-  // }
-  accelerometerReady = accelerometer_init();
-  if (!accelerometerReady) {
-    // if (Serial) Serial.print("Failed to initialise accelerometer!!");
-    currentState = INIT_FAILED;
-  } else {
-    getAccelerometerEuler();
-    currentDirectionDeg = eulerDeg[0];  //Before we work out which direction to turn, remember what straightahead is
-    currentState = SWEEP;
-    currentHeading = readBearing() / 10;
-    // if (Serial) {
-    //   Serial.print("Gyro straightahead = ");
-    //   Serial.print(currentDirectionDeg);
-    // }
-  }
+  waitUntilCalibrated();
   motor_Init();
   distanceSensorInit();
   //Check to see if peripheral nano ready
   proximitySensors = getProximityState();
-  if (!nanoAvailable) {
-    // if (Serial) Serial.print("Peripheral Uno not ready");
-  }
+  // if (!nanoAvailable) {
+  // if (Serial) Serial.print("Peripheral Uno not ready");
+  // }
+  waitUntilCalibrated();
   delay(1000);
+  currentHeading = getCompassBearing();
   wdt_enable(WDTO_4S);
+  currentState = SWEEP;
 }
 
 // 1. Sweep the area forward and find the furthest distance; if multiple > 200 cm (max reliable distance) then choose one at random
@@ -83,24 +62,16 @@ void loop() {
     currentState = OFF_GROUND;
   } else if (currentState == OFF_GROUND) {
     //Back on the ground - restart from beginning
-    resetGyro();
+    currentState = SWEEP;
   }
+
+  currentHeading = getCompassBearing();
+  currentDirectionRad = getCompassBearingRads();
+
   // if (Serial) {
   //   Serial.print("STATE: ");
   //   Serial.println(currentState);
   // }
-  getAccelerometerEuler();            //Note that if this fails, as no more recent data received, then we just use the last calculated value
-  currentDirectionDeg = eulerDeg[0];  //Remember what straightahead is
-  currentDirectionRad = euler[0];
-
-  if (rollingOrPitching()) {
-    //We have run into something or have run over something
-    if (currentState == DRIVE) {
-      drive(STOP, currentDirectionRad, 0);
-      backOut();
-      currentState = SWEEP;
-    }
-  }
   switch (currentState) {
     case SWEEP:
       currentState = sweepAndFindDirection();
@@ -109,8 +80,8 @@ void loop() {
       //Rotate to that direction
       // if (Serial) Serial.println("Rotating...");
       if (!rotateTo(directionToDrive)) {
-        //Something wrong with gyro as failed to find correct direction
-        resetGyro();
+        //Something wrong with gyro as failed to find correct direction - retry
+        currentState = SWEEP;
       } else {
         //Returns when car is pointed in the right direction
         currentState = DRIVE;
@@ -144,23 +115,17 @@ void loop() {
       currentDriveState = STOPPED;
       break;
     case OFF_GROUND:
+      sendStopMotorCmd();
       drive(STOP, currentDirectionRad, 0);
       break;
     default:
       // if (Serial) Serial.println("In unknown state...");
+      sendStopMotorCmd();
       drive(STOP, currentDirectionRad, 0);
       currentDriveState = STOPPED;
       break;
   }
   delay(LOOP_TIME);
-}
-
-void resetGyro() {
-  delay(1000);
-  wdt_reset();
-  accelerometerReady = accelerometer_init();
-  wdt_reset();
-  currentState = SWEEP;
 }
 
 Robot_State adjustDirection() {
@@ -183,7 +148,7 @@ Robot_State adjustDirection() {
 Robot_State sweepAndFindDirection() {
   // if (Serial) {
   //   Serial.print("Sweeping, straightahead = ");
-  //   Serial.println(currentDirectionDeg);
+  //   Serial.println(currentHeading);
   // }
   sweep(distances);
   // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
@@ -198,7 +163,7 @@ Robot_State sweepAndFindDirection() {
     int16_t relDirection = SERVO_CENTRE - servoDirection;                //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
     //Convert to direction based on what the accelerometer things (where 0 is the original starting direction)
     //We need to convert that to a value relative to the accelerometer as it is our only constant point of reference
-    directionToDrive = currentDirectionDeg + relDirection;
+    directionToDrive = normalise(currentHeading + relDirection);
     currentState = ROTATING;
   } else if (sweepStatus == BLOCKED_AHEAD) {
     //Turn 180 and sweep
@@ -209,65 +174,25 @@ Robot_State sweepAndFindDirection() {
   return currentState;
 }
 
-//Analyse the distance of the objects found in the sweep to determine
-//(a) whether is safe to drive and which direction
-//(b) Or whether we need to turn around as we are blocked in
-//This may need a reverse if there is no room to turn around
-SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t* bestDirectionIndex) {
-  //Determine greatest distance
-  uint8_t furthestObjectIndex = 0;
-  uint8_t closestObjectIndex = 0;
-  uint8_t widthOfObject = arcs[0].width;
-  SWEEP_STATUS retStatus = CLEAR_TO_DRIVE;
-  for (int i = 1; i < maxObjects; i++) {
-    if (arcs[i].avgDistance == 0) {
-      //null entry
-      continue;
-    }
-    if (arcs[i].avgDistance > arcs[furthestObjectIndex].avgDistance) {
-      furthestObjectIndex = i;
-    }
-    if (arcs[i].avgDistance < arcs[closestObjectIndex].avgDistance) {
-      closestObjectIndex = i;
-    }
-  }
-  //Now re-check best object using the width
-  for (int i = 1; i < maxObjects; i++) {
-    if (arcs[i].avgDistance == 0) {
-      //null entry
-      continue;
-    }
-    if (arcs[i].avgDistance == arcs[furthestObjectIndex].avgDistance && arcs[i].width > widthOfObject) {
-      //Object is the same distance away (probably max) but is wider - go to that one
-      furthestObjectIndex = i;
-    }
-  }
-  if (arcs[furthestObjectIndex].avgDistance <= MIN_DISTANCE_AHEAD) {
-    //No point going any further, turn around and do another sweep
-
-    //Check if any objects are within minimum safe distance, if so need to back out rather than rotate
-    // if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
-    //   retStatus = CANNOT_TURN;
-    // } else {
-    retStatus = BLOCKED_AHEAD;
-    // }
-  }
-  *bestDirectionIndex = furthestObjectIndex;
-  return retStatus;
-}
-
 void driveAndScan() {
   uint16_t distanceClear = clearDistanceAhead();
   //Check speed, distance and for any immediate obstructions
-  getStatusCmd();
-  bool wheelTrapped = ((periStatus.currentLeftSpeed == 0 || periStatus.currentRightSpeed == 0) && periStatus.distanceTravelled > 0);
+  bool status = false;
+  do {
+    //Try and read a valid proximatey status continuously
+    //Eventually the watchdog will trigger if cant get it
+    status = getStatusCmd();
+  } while (!status);
+  bool wheelTrapped = ((periStatus.currentLeftSpeed == 0 || periStatus.currentRightSpeed == 0) && periStatus.distanceTravelled > 10);
+  // bool rolled = rollingOrPitching();
+  bool rolled = false;
   proximitySensors = getProximityState();
   bool hitSomething = checkFrontProximity(proximitySensors);
-  if (hitSomething) {
-    currentState = adjustDirection();
-  } else if (wheelTrapped) {
+  if (wheelTrapped || rolled) {
     ////Weve hit something or one of the wheels aint turning
     currentState = BACK_OUT;
+  } else if (hitSomething) {
+    currentState = adjustDirection();
   } else if (distanceClear > 100) {
     //Charge!
     drive(FORWARD, currentDirectionRad, 125);
