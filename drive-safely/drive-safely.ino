@@ -8,7 +8,7 @@
 #include "movement.h"
 #include "robo-car.h"
 #include "distance-sensor.h"
-
+#include "status.h"
 
 unsigned long driveTimer = 0;
 int16_t directionToDrive = 0;
@@ -27,16 +27,22 @@ bool compassReady = false;
 uint8_t proximitySensors = 0;
 bool drivingForward = false;  //Set to true when driving forward
 
+float batteryVoltage = 0.0;
+
+unsigned long statusTimer = 0;
+
 void setup() {
   // Serial.begin(9600);
   groundTrackingInit();
   // Start I²C bus
   Wire.begin();
+  statusInit();
+  showBatteryStatus();
   delay(3000);  //Let everything settle before initialising accelerometer
   compassReady = compass_init();
   waitUntilCalibrated();
   motor_Init();
-  distanceSensorInit();
+  distanceSensorInit(); 
   //Check to see if peripheral nano ready
   proximitySensors = getProximityState();
   // if (!nanoAvailable) {
@@ -63,6 +69,14 @@ void loop() {
   } else if (currentState == OFF_GROUND) {
     //Back on the ground - restart from beginning
     currentState = SWEEP;
+  }
+
+  statusTimer += LOOP_TIME;
+  if (statusTimer > STATUS_TIME) {
+    statusTimer = 0;
+    batteryVoltage = getBatteryVoltage();
+    setStatusLed(batteryVoltage);
+    //TODO : send status to PI
   }
 
   currentHeading = getCompassBearing();
