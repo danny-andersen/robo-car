@@ -1,9 +1,0 @@
-wheel
-setuptools
-numpy
-matlib
-matplotlib
-pyserial
-pyqt5
-scipy
-
