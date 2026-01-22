@@ -64,7 +64,7 @@ void loop() {
   systemStatus.currentBearing = getCompassBearing();
   readAttitude(&systemStatus.pitch, systemStatus.roll);
   systemStatus.batteryVoltage = getBatteryVoltageInt();
-  setStatusLed(systemStatus.batteryVoltage / 100);
+  setStatusLed(systemStatus.batteryVoltage / 100.0);
   Serial.print("Heading: ");
   Serial.print(systemStatus.currentBearing);
   Serial.print(" Pitch: ");

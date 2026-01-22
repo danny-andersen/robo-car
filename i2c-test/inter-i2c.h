@@ -109,6 +109,12 @@ bool rxStatus() {
   if (waitForResponse()) {
     Wire.readBytes((byte *)&periStatus, sizeof(periStatus));
     if (periStatus.proximityState != 0xFF) {
+      //Copy to system status to send to PI
+      systemStatus.proximityState = periStatus.proximityState;
+      systemStatus.rightWheelSpeed = periStatus.currentRightSpeed;
+      systemStatus.leftWheelSpeed = periStatus.currentLeftSpeed;
+      systemStatus.averageSpeed = periStatus.averageSpeed;
+      systemStatus.distanceTravelled = periStatus.distanceTravelled;
       retStatus = true;
     }
   }
@@ -178,6 +184,7 @@ uint8_t getProximityState() {
     //   Serial.println("Timed out from Nano");
     // }
   }
+  systemStatus.proximityState = proximityState;
   return proximityState;
 }
 

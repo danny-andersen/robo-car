@@ -1,21 +1,21 @@
 #include <avr/wdt.h>
 
-#include "ground-tracking.h"
 #include "Wire.h"
+
+#include "robo-car.h"
+#include "ground-tracking.h"
 #include "cmps-12.h"
+#include "distance-sensor.h"
 #include "inter-i2c.h"
 #include "motor-driver.h"
 #include "movement.h"
-#include "robo-car.h"
-#include "distance-sensor.h"
 #include "status.h"
 
 unsigned long driveTimer = 0;
 int16_t directionToDrive = 0;
-uint16_t currentHeading = 0;    //Current compass heading pointed in
 float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
-Robot_State currentState = INIT;
 Drive_State currentDriveState = STOPPED;
+uint8_t proximitySensors = 0xFF;
 
 uint16_t furthestDistance = 0;
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
@@ -24,7 +24,6 @@ uint8_t furthestObjectIndex = 0;
 
 bool accelerometerReady = false;
 bool compassReady = false;
-uint8_t proximitySensors = 0;
 bool drivingForward = false;  //Set to true when driving forward
 
 float batteryVoltage = 0.0;
@@ -33,6 +32,7 @@ unsigned long statusTimer = 0;
 
 void setup() {
   // Serial.begin(9600);
+  systemStatus.robotState = INIT;
   groundTrackingInit();
   // Start I²C bus
   Wire.begin();
@@ -43,16 +43,13 @@ void setup() {
   waitUntilCalibrated();
   motor_Init();
   distanceSensorInit(); 
-  //Check to see if peripheral nano ready
+  //Wait until peripheral nano ready
   proximitySensors = getProximityState();
-  // if (!nanoAvailable) {
-  // if (Serial) Serial.print("Peripheral Uno not ready");
-  // }
   waitUntilCalibrated();
   delay(1000);
-  currentHeading = getCompassBearing();
+  systemStatus.currentBearing = getCompassBearing();
   wdt_enable(WDTO_4S);
-  currentState = SWEEP;
+  systemStatus.robotState = SWEEP;
 }
 
 // 1. Sweep the area forward and find the furthest distance; if multiple > 200 cm (max reliable distance) then choose one at random
@@ -65,10 +62,10 @@ void loop() {
   wdt_reset();
   if (leftGround()) {
     // if (Serial) Serial.println("Left ground!");
-    currentState = OFF_GROUND;
-  } else if (currentState == OFF_GROUND) {
+    systemStatus.robotState = OFF_GROUND;
+  } else if (systemStatus.robotState == OFF_GROUND) {
     //Back on the ground - restart from beginning
-    currentState = SWEEP;
+    systemStatus.robotState = SWEEP;
   }
 
   statusTimer += LOOP_TIME;
@@ -76,42 +73,45 @@ void loop() {
     statusTimer = 0;
     batteryVoltage = getBatteryVoltage();
     setStatusLed(batteryVoltage);
-    //TODO : send status to PI
+    systemStatus.batteryVoltage = getBatteryVoltageInt();
+    getTempHumidityInt(&systemStatus.tempC, &systemStatus.humidity);
+    //Send status to PI
+    sendSystemStatus();
   }
 
-  currentHeading = getCompassBearing();
+  systemStatus.currentBearing = getCompassBearing();
   currentDirectionRad = getCompassBearingRads();
 
   // if (Serial) {
   //   Serial.print("STATE: ");
   //   Serial.println(currentState);
   // }
-  switch (currentState) {
+  switch (systemStatus.robotState) {
     case SWEEP:
-      currentState = sweepAndFindDirection();
+      systemStatus.robotState = sweepAndFindDirection();
       break;
     case ROTATING:
       //Rotate to that direction
       // if (Serial) Serial.println("Rotating...");
       if (!rotateTo(directionToDrive)) {
         //Something wrong with gyro as failed to find correct direction - retry
-        currentState = SWEEP;
+        systemStatus.robotState = SWEEP;
       } else {
         //Returns when car is pointed in the right direction
-        currentState = DRIVE;
+        systemStatus.robotState = DRIVE;
       }
       break;
     case UTURN_SWEEP:
       //Turn the robot around and do a sweep
       // if (Serial) Serial.println("U turn...");
       aboutTurn();
-      currentState = SWEEP;
+      systemStatus.robotState = SWEEP;
       break;
     case BACK_OUT:
       // Reverse for 0.5 second, and do another sweep
       // if (Serial) Serial.println("Reversing");
       backOut();
-      currentState = SWEEP;
+      systemStatus.robotState = SWEEP;
       break;
     case DRIVE:
       //Drive straight and scan (note that yaw should be reset)
@@ -126,7 +126,7 @@ void loop() {
       //Cant do anything
       // if (Serial) Serial.println("Init failed, halting...");
       drive(STOP, currentDirectionRad, 0);
-      currentDriveState = STOPPED;
+      systemStatus.robotState = STOPPED;
       break;
     case OFF_GROUND:
       sendStopMotorCmd();
@@ -136,7 +136,7 @@ void loop() {
       // if (Serial) Serial.println("In unknown state...");
       sendStopMotorCmd();
       drive(STOP, currentDirectionRad, 0);
-      currentDriveState = STOPPED;
+      systemStatus.robotState = STOPPED;
       break;
   }
   delay(LOOP_TIME);
@@ -177,15 +177,15 @@ Robot_State sweepAndFindDirection() {
     int16_t relDirection = SERVO_CENTRE - servoDirection;                //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
     //Convert to direction based on what the accelerometer things (where 0 is the original starting direction)
     //We need to convert that to a value relative to the accelerometer as it is our only constant point of reference
-    directionToDrive = normalise(currentHeading + relDirection);
-    currentState = ROTATING;
+    directionToDrive = normalise(systemStatus.currentBearing + relDirection);
+    systemStatus.robotState = ROTATING;
   } else if (sweepStatus == BLOCKED_AHEAD) {
     //Turn 180 and sweep
-    currentState = UTURN_SWEEP;
+    systemStatus.robotState = UTURN_SWEEP;
   } else if (sweepStatus == CANNOT_TURN) {
-    currentState = BACK_OUT;
+    systemStatus.robotState = BACK_OUT;
   }
-  return currentState;
+  return systemStatus.robotState;
 }
 
 void driveAndScan() {
@@ -204,9 +204,9 @@ void driveAndScan() {
   bool hitSomething = checkFrontProximity(proximitySensors);
   if (wheelTrapped || rolled) {
     ////Weve hit something or one of the wheels aint turning
-    currentState = BACK_OUT;
+    systemStatus.robotState = BACK_OUT;
   } else if (hitSomething) {
-    currentState = adjustDirection();
+    systemStatus.robotState = adjustDirection();
   } else if (distanceClear > 100) {
     //Charge!
     drive(FORWARD, currentDirectionRad, 125);
@@ -226,6 +226,6 @@ void driveAndScan() {
     sendStopMotorCmd();
     //Reached the end of the current drive - do another sweep
     drivingForward = false;
-    currentState = SWEEP;
+    systemStatus.robotState = SWEEP;
   }
 }

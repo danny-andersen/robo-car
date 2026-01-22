@@ -11,8 +11,8 @@
 struct Arc {
   uint8_t startIndex;  //0 is 90 right, 180 is 90 left
   uint8_t endIndex;
-  uint8_t centreDirection;
-  uint8_t width;         //of arc
+  uint16_t centreDirection;
+  uint16_t width;         //of arc
   uint16_t avgDistance;  //distance
 };
 
