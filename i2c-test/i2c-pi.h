@@ -1,37 +1,8 @@
-#define UNO_PERIPHERAL_ADDR 0x08
-#define PI_ADDR 0x09
-
-//Commands
-#define REQ_PROXIMITY_STATE_CMD 0x01     //Requesting the state of the proximity sensors attached to the uno
-#define REQ_DIRECTION_TO_DRIVE_CMD 0x02  //Requesting the determination of which direction to drive next (based on obstacles in front)
-#define SENDING_OBSTACLES_CMD 0x03       //About to start sending obstacles
-#define NEXT_OBSTACLE_CMD 0x04           //The next obstacle in the list
-#define MOTOR_STARTING_CMD 0x05          //Motor is starting - reset wheel pulse counters
-#define MOTOR_STOPPING_CMD 0x06          //Motor is stopping
-#define REQ_STATUS_CMD 0x07              //Return proximity status, distance travelled, current speed
-#define SEND_SYSTEM_STATUS_CMD 0x08      //Sends system status to PI
-
-//Data definitions
-#define FRONT_LEFT_PROX_BIT 0
-#define FRONT_RIGHT_PROX_BIT 1
-#define REAR_LEFT_PROX_BIT 2
-#define REAR_RIGHT_PROX_BIT 3
-#define TOP_FRONT_LEFT_PROX_BIT 4
-#define TOP_FRONT_RIGHT_PROX_BIT 5
-#define FRONT_LEFT_PROX_SET 0x01
-#define FRONT_RIGHT_PROX_SET 0x02
-#define REAR_LEFT_PROX_SET 0x04
-#define REAR_RIGHT_PROX_SET 0x08
-#define TOP_FRONT_LEFT_PROX_SET 0x10
-#define TOP_FRONT_RIGHT_PROX_SET 0x20
-
-
-#define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
-
 struct ObstacleData {
   uint16_t bearing;      //Compass heading of the centre of the obstacle
   uint16_t width;        //The width in degrees of view of the obstacle in front
   uint16_t avgDistance;  //How far away the obstacle is
+  uint8_t checksum;
 };
 
 struct ObstaclesCmd {
@@ -39,18 +10,11 @@ struct ObstaclesCmd {
   uint8_t numOfObstaclesToSend;  //Number of obstacles found that are to be sent for analysis
 };
 
-struct StatusStruct {
-  uint8_t proximityState;      //Status of proximity sensors
-  uint8_t currentLeftSpeed;    //Current speed of left wheel in cm/s
-  uint8_t currentRightSpeed;   //Current speed of right wheel in cm/s
-  uint8_t averageSpeed;        //Avg speed of current drive in cm/s
-  uint16_t distanceTravelled;  //Distance travelled since motored started in cm (average of left and right)
-};
-
 struct PiStatusStruct {
   uint8_t ready;              //0 == not ready
   uint8_t lidarStatus;        //Bits set according to proximity bits
   uint16_t directionToDrive;  //1000 = direction not set
+  uint8_t checksum;
 };
 
 struct SystemStatusStruct {
@@ -66,14 +30,13 @@ struct SystemStatusStruct {
   uint8_t leftWheelSpeed;
   uint8_t averageSpeed;
   uint8_t distanceTravelled;
+  uint8_t checksum;
 };
-
-bool nanoAvailable = true;
 
 ObstaclesCmd obstaclesCmd;
 ObstacleData obstacle;
-StatusStruct periStatus;
-PiStatusStruct piStatus;
+StatusStruct rdstatus;
+PiStatusStruct piStatus, rdpiStatus;
 SystemStatusStruct systemStatus;
 
 uint8_t numToReceive = 0;
@@ -105,17 +68,38 @@ void flush() {
   }
 }
 
-int8_t rxStatus() {
-
-  Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(periStatus));
+int8_t rxNanoStatus() {
+  Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(rdstatus));
   if (waitForResponse()) {
-    Wire.readBytes((byte *)&periStatus, sizeof(periStatus));
-    //Copy to system status to send to PI
-    systemStatus.proximityState = periStatus.proximityState;
-    systemStatus.rightWheelSpeed = periStatus.currentRightSpeed;
-    systemStatus.leftWheelSpeed = periStatus.currentLeftSpeed;
-    systemStatus.averageSpeed = periStatus.averageSpeed;
-    systemStatus.distanceTravelled = periStatus.distanceTravelled;
+    Wire.readBytes((byte *)&rdstatus, sizeof(rdstatus));
+    uint8_t calc = crc8((uint8_t *)&rdstatus, sizeof(StatusStruct) - 1);
+    if (calc != rdstatus.checksum) {
+      // BAD PACKET
+      return 1;
+    } else {
+      nanoStatus = rdstatus;
+      //Copy to system status to send to PI
+      systemStatus.proximityState = nanoStatus.proximityState;
+      systemStatus.rightWheelSpeed = nanoStatus.currentRightSpeed;
+      systemStatus.leftWheelSpeed = nanoStatus.currentLeftSpeed;
+      systemStatus.averageSpeed = nanoStatus.averageSpeed;
+      systemStatus.distanceTravelled = nanoStatus.distanceTravelled;
+      //   Serial.print("Rx proximity state: ");
+      //   Serial.println(systemStatus.proximityState);  // print the character
+      //   Serial.print("Front Left: ");
+      //   Serial.print((systemStatus.proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Front Right: ");
+      //   Serial.print((systemStatus.proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
+      //   Serial.print(" Rear Left: ");
+      //   Serial.print((systemStatus.proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Rear Right: ");
+      //   Serial.print((systemStatus.proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+      //   Serial.print(" Top Front Left: ");
+      //   Serial.print((systemStatus.proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Top Front RIGHT: ");
+      //   Serial.println((systemStatus.proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
+      // }
+    }
     nanoOnBus = 0;
   } else {
     nanoOnBus = 1;
@@ -127,7 +111,12 @@ void sendStartMotorCmd() {
   //Send command to peripheral nano that the drive motors are starting
   Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
   Wire.write(MOTOR_STARTING_CMD);
-  Wire.endTransmission();
+  nanoOnBus = Wire.endTransmission();
+  if (!nanoOnBus) {
+    return rxNanoStatus();
+  } else {
+    return nanoOnBus;
+  }
 }
 
 int8_t sendStopMotorCmd() {
@@ -136,32 +125,40 @@ int8_t sendStopMotorCmd() {
   Wire.write(MOTOR_STOPPING_CMD);
   nanoOnBus = Wire.endTransmission();
   if (!nanoOnBus) {
-    return rxStatus();
+    return rxNanoStatus();
   } else {
     return nanoOnBus;
   }
 }
 
-int8_t getStatusCmd() {
+int8_t getNanoStatusCmd() {
   Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
   Wire.write(REQ_STATUS_CMD);
   nanoOnBus = Wire.endTransmission();
   //Should get a full status response
   if (!nanoOnBus) {
-    return rxStatus();
+    return rxNanoStatus();
   } else {
     return nanoOnBus;
   }
 }
 
 int8_t readPiStatus() {
-  Wire.requestFrom(PI_ADDR, sizeof(piStatus));
+  Wire.requestFrom(PI_ADDR, sizeof(rdpiStatus));
   if (waitForResponse()) {
     //Should get pi status back acknowledging receipt
-    Wire.readBytes((byte *)&piStatus, sizeof(piStatus));
-    if (piStatus.ready == 1) {
+    Wire.readBytes((byte *)&rdpiStatus, sizeof(rdpiStatus));
+    uint8_t calc = crc8((uint8_t *)&rdpiStatus, sizeof(rdpiStatus) - 1);
+    if (calc == rdpiStatus.checksum && rdpiStatus.ready == 1) {
+      piStatus = rdpiStatus;
       piOnBus = 0;  //Correct ack
     } else {
+      if (Serial && calc != rdpiStatus.checksum) {
+        Serial.print("Read PI: Incorrect crc rx: ");
+        Serial.print(rdpiStatus.checksum);
+        Serial.print(" exp: ");
+        Serial.println(calc);
+      }
       piOnBus = 1;  //Incorrect status read
     }
   }
@@ -180,55 +177,11 @@ int8_t getPiStatusCmd() {
   return piOnBus;
 }
 
-
-int8_t getProximityState() {
-  //Send command to peri uno to get status of all proximity sensors
-  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
-  Wire.write(REQ_PROXIMITY_STATE_CMD);
-  nanoOnBus = Wire.endTransmission();
-  //Request data
-  if (!nanoOnBus) {
-    Wire.requestFrom(UNO_PERIPHERAL_ADDR, 1);
-    if (waitForResponse()) {
-      systemStatus.proximityState = Wire.read();  // if (Serial) {
-      //   Serial.print("Rx proximity state: ");
-      //   Serial.println(proximityState);  // print the character
-      //   Serial.print("Front Left: ");
-      //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
-      //   Serial.print(" Front Right: ");
-      //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
-      //   Serial.print(" Rear Left: ");
-      //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
-      //   Serial.print(" Rear Right: ");
-      //   Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
-      //   Serial.print(" Top Front Left: ");
-      //   Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
-      //   Serial.print(" Top Front RIGHT: ");
-      //   Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
-      // }
-      // if (Wire.available() > 0) {
-      //   if (Serial) {
-      //     Serial.print("Still have bytes to read?? : ");
-      //     Serial.println(Wire.available());
-      //   }
-      //   while (Wire.available() > 0) Serial.print(Wire.read());
-      //   Serial.println();
-      // }
-    } else {
-      nanoOnBus = 1;
-      // if (Serial) {
-      //   Serial.println("Timed out from Nano");
-      // }
-    }
-  }
-  return nanoOnBus;
-}
-
 void getCombinedProximity() {
   do {
     //Try and read a valid proximatey status continuously
     //Eventually the watchdog will trigger if cant get it - we cant proceed without it
-    nanoOnBus = getProximityState();
+    nanoOnBus = getNanoStatusCmd();
   } while (nanoOnBus);
   //Get the PI status, which includes the LIDAR proximity state, with the same bits set as the proximity sensors on the nano
   piOnBus = getPiStatusCmd();
@@ -242,77 +195,29 @@ bool checkFrontRightProximity(uint8_t status) {
   return (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET);
 }
 
-bool getFrontRightProximity() {
-  uint8_t status = getProximityState();
-  return checkFrontRightProximity(status);
-}
-
 bool checkFrontLeftProximity(uint8_t status) {
   return (status & FRONT_LEFT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
-}
-
-bool getFrontLeftProximity() {
-  uint8_t status = getProximityState();
-  //Get the PI status, which includes the LIDAR proximity state
-  getPiStatusCmd();
-  //OR this in with the IR proximity sensors
-  status |= piStatus.lidarStatus;
-  return checkFrontLeftProximity(status);
 }
 
 bool checkFrontProximity(uint8_t status) {
   return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
 }
 
-bool getFrontProximity() {
-  uint8_t status = getProximityState();
-  //Get the PI status, which includes the LIDAR proximity state
-  getPiStatusCmd();
-  //OR this in with the IR proximity sensors
-  status |= piStatus.lidarStatus;
-  return checkFrontProximity(status);
-}
-
 bool checkRearRightProximity(uint8_t status) {
   return status & REAR_RIGHT_PROX_SET;
 }
 
-bool getRearRightProximity() {
-  uint8_t status = getProximityState();
-  //Get the PI status, which includes the LIDAR proximity state
-  getPiStatusCmd();
-  //OR this in with the IR proximity sensors
-  status |= piStatus.lidarStatus;
-  return checkRearRightProximity(status);
-}
 
 bool checkRearLeftProximity(uint8_t status) {
   return status & REAR_LEFT_PROX_SET;
-}
-
-bool getRearLeftProximity() {
-  uint8_t status = getProximityState();
-  //Get the PI status, which includes the LIDAR proximity state
-  getPiStatusCmd();
-  //OR this in with the IR proximity sensors
-  status |= piStatus.lidarStatus;
-  return checkRearLeftProximity(status);
 }
 
 bool checkRearProximity(uint8_t status) {
   return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET);
 }
 
-bool getRearProximity() {
-  systemStatus.proximityState = getProximityState();
-  //Get the PI status, which includes the LIDAR proximity state
-  getPiStatusCmd();
-  //OR this in with the IR proximity sensors
-  systemStatus.proximityState |= piStatus.lidarStatus;
-  return checkRearProximity(systemStatus.proximityState);
-}
-
 int8_t sendSystemStatus() {
+  systemStatus.checksum = crc8((uint8_t *)&systemStatus, sizeof(systemStatus) - 1);
   Wire.beginTransmission(PI_ADDR);
   Wire.write(SEND_SYSTEM_STATUS_CMD);
   Wire.write((byte *)&systemStatus, sizeof(systemStatus));

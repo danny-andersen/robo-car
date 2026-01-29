@@ -8,13 +8,12 @@ bool leftGround() {
 }
 #include "distance-sensor.h"
 
-#include "inter-i2c.h"
+#include "i2c-nano.h"
+#include "i2c-pi.h"
 #include "status.h"
 
 
 bool compassReady = false;
-int8_t piOnBus = 1;    //0 = on bus, any other value is an error
-int8_t nanoOnBus = 1;  //0 = on bus, any other value is an error
 
 uint16_t currentHeading = 0;
 uint16_t lastHeading = 0;
@@ -47,6 +46,20 @@ void setup() {
   Serial.println(compassReady);
 }
 
+void printNanoStatus() {
+    Serial.print("Nano Proximity: ");
+    Serial.print(nanoStatus.proximityState);
+    Serial.print(" left speed: ");
+    Serial.print(nanoStatus.currentLeftSpeed);
+    Serial.print(" right speed: ");
+    Serial.print(nanoStatus.currentRightSpeed);
+    Serial.print(" avg speed: ");
+    Serial.print(nanoStatus.averageSpeed);
+    Serial.print(" distance: ");
+    Serial.println(nanoStatus.distanceTravelled);
+}
+
+
 void loop() {
   systemStatus.currentBearing = getCompassBearing();
   readAttitude(&systemStatus.pitch, systemStatus.roll);
@@ -71,18 +84,12 @@ void loop() {
     Serial.println();
   }
 
-
-  nanoOnBus = getStatusCmd();
+  nanoOnBus = getNanoStatusCmd();
   if (nanoOnBus) {
     Serial.print("Failed to send to Nano: ");
     Serial.println(nanoOnBus);
   } else {
-    Serial.print("Nano Proximity: ");
-    Serial.print(periStatus.proximityState);
-    Serial.print(" avg speed: ");
-    Serial.print(periStatus.averageSpeed);
-    Serial.print(" distance: ");
-    Serial.println(periStatus.distanceTravelled);
+    printNanoStatus();
   }
 
   // nanoOnBus = getProximityState();
@@ -137,7 +144,7 @@ void loop() {
     }
   }
 
-  if (!getPiStatusCmd()) {
+  if (!piOnBus) {
     //Pi is available
     //OR the lidar proximity status in with the IR proximity sensors
     systemStatus.proximityState |= piStatus.lidarStatus;
@@ -156,7 +163,6 @@ void loop() {
   }
   systemStatus.proximityState |= piStatus.lidarStatus;
   Serial.println();
-
 
   // sweep(distances);
   // // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
@@ -187,6 +193,11 @@ void loop() {
   //   Serial.print("Failed to send all obstacles: ");
   //   Serial.println(obsStatus);
   // }
-
+  sendStartMotorCmd();
+  Serial.print("Start motor: ");
+  printNanoStatus();
   delay(1000);
+  sendStopMotorCmd();
+  Serial.print("Stop motor: ");
+  printNanoStatus();
 }

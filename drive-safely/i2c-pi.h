@@ -1,32 +1,3 @@
-#define UNO_PERIPHERAL_ADDR 0x08
-#define PI_ADDR 0x09
-
-//Commands
-#define REQ_DIRECTION_TO_DRIVE_CMD 0x02  //Requesting the determination of which direction to drive next (based on obstacles in front)
-#define SENDING_OBSTACLES_CMD 0x03       //About to start sending obstacles
-#define NEXT_OBSTACLE_CMD 0x04           //The next obstacle in the list
-#define MOTOR_STARTING_CMD 0x05          //Motor is starting - reset wheel pulse counters
-#define MOTOR_STOPPING_CMD 0x06          //Motor is stopping
-#define REQ_STATUS_CMD 0x07              //Return proximity status, distance travelled, current speed
-#define SEND_SYSTEM_STATUS_CMD 0x08      //Sends system status to PI
-
-//Data definitions
-#define FRONT_LEFT_PROX_BIT 0
-#define FRONT_RIGHT_PROX_BIT 1
-#define REAR_LEFT_PROX_BIT 2
-#define REAR_RIGHT_PROX_BIT 3
-#define TOP_FRONT_LEFT_PROX_BIT 4
-#define TOP_FRONT_RIGHT_PROX_BIT 5
-#define FRONT_LEFT_PROX_SET 0x01
-#define FRONT_RIGHT_PROX_SET 0x02
-#define REAR_LEFT_PROX_SET 0x04
-#define REAR_RIGHT_PROX_SET 0x08
-#define TOP_FRONT_LEFT_PROX_SET 0x10
-#define TOP_FRONT_RIGHT_PROX_SET 0x20
-
-
-#define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
-
 struct ObstacleData {
   uint16_t bearing;      //Compass heading of the centre of the obstacle
   uint16_t width;        //The width in degrees of view of the obstacle in front
@@ -37,15 +8,6 @@ struct ObstacleData {
 struct ObstaclesCmd {
   int16_t currentCompassDirn;    //Current compass direction (i.e. straightahead)
   uint8_t numOfObstaclesToSend;  //Number of obstacles found that are to be sent for analysis
-};
-
-struct StatusStruct {
-  uint8_t proximityState;      //Status of proximity sensors
-  uint8_t currentLeftSpeed;    //Current speed of left wheel in cm/s
-  uint8_t currentRightSpeed;   //Current speed of right wheel in cm/s
-  uint8_t averageSpeed;        //Avg speed of current drive in cm/s
-  uint16_t distanceTravelled;  //Distance travelled since motored started in cm (average of left and right)
-  uint8_t checksum;
 };
 
 struct PiStatusStruct {
@@ -71,11 +33,9 @@ struct SystemStatusStruct {
   uint8_t checksum;
 };
 
-bool nanoAvailable = true;
-
 ObstaclesCmd obstaclesCmd;
 ObstacleData obstacle;
-StatusStruct nanoStatus, rdstatus;
+StatusStruct rdstatus;
 PiStatusStruct piStatus, rdpiStatus;
 SystemStatusStruct systemStatus;
 
@@ -99,10 +59,10 @@ void flush() {
   //Read any bytes still in the buffer
   delay(10);
   if (Wire.available() > 0) {
-    if (Serial) {
-      Serial.print("Still have bytes to read?? : ");
-      Serial.println(Wire.available());
-    }
+    // if (Serial) {
+    //   Serial.print("Still have bytes to read?? : ");
+    //   Serial.println(Wire.available());
+    // }
     while (Wire.available() > 0) Serial.print(Wire.read());
     Serial.println();
   }
@@ -112,11 +72,11 @@ int8_t rxNanoStatus() {
   Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(rdstatus));
   if (waitForResponse()) {
     Wire.readBytes((byte *)&rdstatus, sizeof(rdstatus));
-    uint8_t calc = crc8((uint8_t*)&rdstatus, sizeof(StatusStruct) - 1);
-     if (calc != rdstatus.checksum) { 
+    uint8_t calc = crc8((uint8_t *)&rdstatus, sizeof(StatusStruct) - 1);
+    if (calc != rdstatus.checksum) {
       // BAD PACKET
-       return 1;
-     } else {
+      return 1;
+    } else {
       nanoStatus = rdstatus;
       //Copy to system status to send to PI
       systemStatus.proximityState = nanoStatus.proximityState;
@@ -139,8 +99,7 @@ int8_t rxNanoStatus() {
       //   Serial.print(" Top Front RIGHT: ");
       //   Serial.println((systemStatus.proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
       // }
-
-     }
+    }
     nanoOnBus = 0;
   } else {
     nanoOnBus = 1;
@@ -152,7 +111,12 @@ void sendStartMotorCmd() {
   //Send command to peripheral nano that the drive motors are starting
   Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
   Wire.write(MOTOR_STARTING_CMD);
-  Wire.endTransmission();
+  nanoOnBus = Wire.endTransmission();
+  if (!nanoOnBus) {
+    return rxNanoStatus();
+  } else {
+    return nanoOnBus;
+  }
 }
 
 int8_t sendStopMotorCmd() {
@@ -180,13 +144,21 @@ int8_t getNanoStatusCmd() {
 }
 
 int8_t readPiStatus() {
-  Wire.requestFrom(PI_ADDR, sizeof(piStatus));
+  Wire.requestFrom(PI_ADDR, sizeof(rdpiStatus));
   if (waitForResponse()) {
     //Should get pi status back acknowledging receipt
-    Wire.readBytes((byte *)&piStatus, sizeof(piStatus));
-    if (piStatus.ready == 1) {
+    Wire.readBytes((byte *)&rdpiStatus, sizeof(rdpiStatus));
+    uint8_t calc = crc8((uint8_t *)&rdpiStatus, sizeof(rdpiStatus) - 1);
+    if (calc == rdpiStatus.checksum && rdpiStatus.ready == 1) {
+      piStatus = rdpiStatus;
       piOnBus = 0;  //Correct ack
     } else {
+      // if (Serial && calc != rdpiStatus.checksum) {
+      //   Serial.print("Read PI: Incorrect crc rx: ");
+      //   Serial.print(rdpiStatus.checksum);
+      //   Serial.print(" exp: ");
+      //   Serial.println(calc);
+      // }
       piOnBus = 1;  //Incorrect status read
     }
   }
@@ -245,6 +217,7 @@ bool checkRearProximity(uint8_t status) {
 }
 
 int8_t sendSystemStatus() {
+  systemStatus.checksum = crc8((uint8_t *)&systemStatus, sizeof(systemStatus) - 1);
   Wire.beginTransmission(PI_ADDR);
   Wire.write(SEND_SYSTEM_STATUS_CMD);
   Wire.write((byte *)&systemStatus, sizeof(systemStatus));

@@ -6,7 +6,8 @@
 #include "ground-tracking.h"
 #include "cmps-12.h"
 #include "distance-sensor.h"
-#include "inter-i2c.h"
+#include "i2c-nano.h"
+#include "i2c-pi.h"
 #include "motor-driver.h"
 #include "movement.h"
 #include "status.h"
@@ -53,17 +54,11 @@ void setup() {
   waitUntilCalibrated();
   motor_Init();
   distanceSensorInit();
-  //Wait until peripheral nano ready
-  do {
-    nanoOnBus = getProximityState();
-  } while (nanoOnBus);
-  //Wait until pi is up and running
-  do {
-    piOnBus = getPiStatusCmd();
-    //returns 0 when got a valid status
-  } while (piOnBus);
+  //Wait until nano and pi peripherals are ready
+  getCombinedProximity();
   delay(1000);
   systemStatus.currentBearing = getCompassBearing();
+  //Send init status to PI for logging
   updateStatus();
   statusTimer = 0;
   wdt_enable(WDTO_4S);

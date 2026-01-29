@@ -33,18 +33,18 @@ PROXIMITY_THRESHOLD_FRONT_MM = 200 #Anything closer than this is considered an o
 PROXIMITY_ANGLE_FRONT_LEFT = 330 #Angle (degrees) to left of front for proximity checking
 PROXIMITY_ANGLE_FRONT_RIGHT = 30 #Angle (degrees) to right of front for proximity checking
 
-PROXIMITY_THRESHOLD_REAR_MM = 45 #Anything closer than this is considered an obstacle directly on the rear
-PROXIMITY_ANGLE_REAR_LEFT = 240 #Angle (degrees) limit on left side
-PROXIMITY_ANGLE_REAR_RIGHT = 120 #Angle (degrees) on right side 
+PROXIMITY_THRESHOLD_REAR_MM = 60 #Anything closer than this is considered an obstacle directly on the rear
+PROXIMITY_ANGLE_REAR_LEFT = 260 #Angle (degrees) limit on left side
+PROXIMITY_ANGLE_REAR_RIGHT = 100 #Angle (degrees) on right side 
 
 
 # -----------------------------
 # Struct definitions
 # -----------------------------
-ObstacleData_struct = struct.Struct("<HHH")
-ObstaclesCmd_struct = struct.Struct("<hB")
-SystemStatusStruct = struct.Struct("<hhHBBhbbBBBB")
-PiStatusStruct = struct.Struct("<BBH")
+ObstacleData_struct = struct.Struct("<HHHB") # relDir, width, avgDistance, crc
+ObstaclesCmd_struct = struct.Struct("<hBB") # currentCompassDirn, numToSend, crc
+SystemStatusStruct = struct.Struct("<hhHBBhbbBBBBB") # humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, CRC
+PiStatusStruct = struct.Struct("<BBH") # systemReady, lidarProximity, directionToDrive
 
 MAX_OBS = 20
 
@@ -58,13 +58,14 @@ numObstaclesRx = 0
 
 obstaclesCmd = {
     "currentCompassDirn": 0,
-    "numOfObstaclesToSend": 0
+    "numOfObstaclesToSend": 0,
+
 }
 
 obstacles = [
-    {"bearing": 0, "width": 0, "avgDistance": 0}
+    {"bearing": 0, "width": 0, "avgDistance": 0, }
     for _ in range(MAX_OBS)
-]
+    ]
 
 
 systemStatus = {
@@ -80,13 +81,12 @@ systemStatus = {
     "leftWheelSpeed": 0,
     "averageSpeed": 0,
     "distanceTravelled": 0,
-    # "checksum": 0
 }
 
 piStatus = {
     "systemReady": 0,
     "lidarProximity": 0, # LIDAR proximity state: Bits are set as per LIDAR_PROXIMITY_xxx constants, which match proximity sensor bits
-    "directionToDrive": 1000 # Value indicating no direction set
+    "directionToDrive": 1000, # Value indicating no direction set
 }
 
 ROBOT_STATE_NAMES = [ "INIT", "INIT_FAILED", "DRIVE", "ROTATING", "SWEEP", "UTURN_SWEEP", "BACK_OUT", "OFF_GROUND", ]

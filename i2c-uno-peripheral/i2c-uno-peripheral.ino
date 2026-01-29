@@ -1,6 +1,6 @@
 #include <Wire.h>
 // #include "Arduino_RouterBridge.h"
-#include "inter-i2c.h"
+#include "i2c-nano.h"
 
 
 #define FRONT_LEFT_PROX_SENSOR 6
@@ -20,7 +20,6 @@
 #define PULSES_PER_SECOND_SCALE 1000 / LOOP_DELAY
 #define PULSE_COUNT_DISTANCE_PER_LOOP DISTANCE_PER_PULSE *PULSES_PER_SECOND_SCALE
 
-uint8_t numObstaclesToRx = 0;
 uint8_t currentCommand = 0;
 bool moving = false;
 
@@ -32,9 +31,6 @@ unsigned long lastPulseCountRight = 0;
 unsigned long movingTime = 0;
 float distanceTravelled = 0.0;
 float speed;
-
-ObstacleData obstacles[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];
-uint8_t numObstaclesRx = 0;
 
 void setup() {
   // Serial.begin(9600);
@@ -52,6 +48,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(FRONT_LEFT_WHEEL_SENSOR), pulseLeft, CHANGE);
   attachInterrupt(digitalPinToInterrupt(FRONT_RIGHT_WHEEL_SENSOR), pulseRight, CHANGE);
 
+  resetStats();
   //Configure as I2C peripheral with address 0x8
   Wire.begin(UNO_PERIPHERAL_ADDR);
   // Serial.println("I2C bus started...");
@@ -69,12 +66,12 @@ void loop() {
     if (movingTime > LOOP_DELAY) {
       //Skip first loop
       speed = (pulseCounterLeft - lastPulseCountLeft) * 10.0 * PULSE_COUNT_DISTANCE_PER_LOOP;
-      periStatus.currentLeftSpeed = int(speed / 10 + 0.5);
+      nanoStatus.currentLeftSpeed = int(speed / 10 + 0.5);
       speed = (pulseCounterRight - lastPulseCountRight) * 10.0 * PULSE_COUNT_DISTANCE_PER_LOOP;
-      periStatus.currentRightSpeed = int(speed / 10 + 0.5);
+      nanoStatus.currentRightSpeed = int(speed / 10 + 0.5);
       distanceTravelled = (pulseCounterRight + pulseCounterLeft) * DISTANCE_PER_PULSE / 2;
-      periStatus.distanceTravelled = int(distanceTravelled + 0.5);
-      periStatus.averageSpeed = int((1000 * distanceTravelled / movingTime) + 0.5);
+      nanoStatus.distanceTravelled = int(distanceTravelled + 0.5);
+      nanoStatus.averageSpeed = int((1000 * distanceTravelled / movingTime) + 0.5);
       // if (Serial) {
       //   // Serial.print("Proximity: ");
       //   // Serial.println(readProximitySensors());
@@ -123,8 +120,10 @@ uint8_t readProximitySensors() {
 
 void returnStatus() {
   //Note: status is updated in each loop
-  periStatus.proximityState = readProximitySensors();
-  Wire.write((byte *)&periStatus, sizeof(periStatus));
+  nanoStatus.proximityState = readProximitySensors();
+  nanoStatus.checksum = nanoStatus.checksum = crc8((uint8_t*)&nanoStatus, sizeof(StatusStruct) - 1);
+
+  Wire.write((byte *)&nanoStatus, sizeof(nanoStatus));
 }
 
 void handleProximityRequest() {
@@ -151,22 +150,20 @@ void resetStats() {
   movingTime = 0;
   distanceTravelled = 0.0;
   moving = true;
-  periStatus.distanceTravelled = 0;
-  periStatus.averageSpeed = 0;
-  periStatus.currentLeftSpeed = 0;
-  periStatus.currentRightSpeed = 0;
+  nanoStatus.distanceTravelled = 0;
+  nanoStatus.averageSpeed = 0;
+  nanoStatus.currentLeftSpeed = 0;
+  nanoStatus.currentRightSpeed = 0;
 }
 
 void request_handler() {
   // Serial.print("Received Request for data, current command: ");
   // Serial.println(currentCommand);
   switch (currentCommand) {
-    case REQ_PROXIMITY_STATE_CMD:
-      handleProximityRequest();
-      break;
+    case MOTOR_STARTING_CMD:
     case MOTOR_STOPPING_CMD:
-      //This command also expects a status returned
     case REQ_STATUS_CMD:
+      //These commands expect a status to be returned
       returnStatus();
       break;
     default:
@@ -196,10 +193,6 @@ void command_handler(int numRx) {
   //   Serial.println(currentCommand);
   // }
   switch (currentCommand) {
-    case REQ_PROXIMITY_STATE_CMD:
-      //Return digital state on request
-      // Serial.println("Rx REQ_PROXIMITY_STATE_CMD");
-      break;
     case MOTOR_STARTING_CMD:
       resetStats();
       break;

@@ -16,6 +16,24 @@ import log_changes
 # So we need to set the FIFO buffer to the response BEFORE the master sends a command. Therefore the PI will always send 
 # back the piStatus when the master sends any data, as an acknowledgement of receipt.
 
+def crc8(data: bytes) -> int:
+    """
+    CRC-8 SMBus / polynomial 0x31, initial value 0xFF.
+    Matches Arduino implementation exactly.
+    """
+    crc = 0xFF
+    poly = 0x31
+
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 0x80:
+                crc = ((crc << 1) ^ poly) & 0xFF
+            else:
+                crc = (crc << 1) & 0xFF
+
+    return crc
+
 def on_receive(cmd, data):
     global numObstaclesRx, obstaclesCmd, obstacles, systemStatus
 
@@ -28,11 +46,15 @@ def on_receive(cmd, data):
     if cmd == config.SENDING_OBSTACLES_CMD:
         if len(data) >= 1 + config.ObstaclesCmd_struct.size:
             payload = data[1:1 + config.ObstaclesCmd_struct.size]
-            currentCompassDirn, numToSend = config.ObstaclesCmd_struct.unpack(payload)
-            config.obstaclesCmd["currentCompassDirn"] = currentCompassDirn
-            config.obstaclesCmd["numOfObstaclesToSend"] = numToSend
-            numObstaclesRx = 0
-            obstacles = [{"bearing": 0, "width": 0, "avgDistance": 0} for _ in range(config.MAX_OBS)]
+            calcCrc = crc8(data[1:config.ObstaclesCmd_struct.size])
+            currentCompassDirn, numToSend, crc = config.ObstaclesCmd_struct.unpack(payload)
+            if (calcCrc == crc):
+                config.obstaclesCmd["currentCompassDirn"] = currentCompassDirn
+                config.obstaclesCmd["numOfObstaclesToSend"] = numToSend
+                numObstaclesRx = 0
+                obstacles = [{"bearing": 0, "width": 0, "avgDistance": 0} for _ in range(config.MAX_OBS)]
+            else:
+                print("ObstacleCmd CRC mismatch: calculated", calcCrc, "received", crc) 
 
 
     # -----------------------------
@@ -41,29 +63,39 @@ def on_receive(cmd, data):
     elif cmd == config.NEXT_OBSTACLE_CMD:
         if len(data) >= 1 + config.ObstacleData_struct.size:
             payload = data[1:1 + config.ObstacleData_struct.size]
-            relDir, width, dist = config.ObstacleData_struct.unpack(payload)
-            config.obstacles[numObstaclesRx]["bearing"] = relDir
-            config.obstacles[numObstaclesRx]["width"] = width
-            config.obstacles[numObstaclesRx]["avgDistance"] = dist
-            numObstaclesRx += 1
+            calcCrc = crc8(data[1:config.ObstacleData_struct.size])
+            relDir, width, dist, crc = config.ObstacleData_struct.unpack(payload)
+            if (calcCrc == crc):
+                config.obstacles[numObstaclesRx]["bearing"] = relDir
+                config.obstacles[numObstaclesRx]["width"] = width
+                config.obstacles[numObstaclesRx]["avgDistance"] = dist
+                numObstaclesRx += 1
+            else:
+                print("ObstacleData CRC mismatch: calculated", calcCrc, "received", crc)
         
     elif cmd == config.SEND_SYSTEM_STATUS_CMD:
         if len(data) >= 1+config.SystemStatusStruct.size:
             payload = data[1:1+config.SystemStatusStruct.size]
-            unpacked = config.SystemStatusStruct.unpack(payload)
-            (config.systemStatus["humidity"],
-             config.systemStatus["tempC"],
-             config.systemStatus["batteryVoltage"],
-             config.systemStatus["robotState"],
-             config.systemStatus["proximitySensors"],
-             config.systemStatus["currentBearing"],
-             config.systemStatus["pitch"],
-             config.systemStatus["roll"],
-             config.systemStatus["rightWheelSpeed"],
-             config.systemStatus["leftWheelSpeed"],
-             config.systemStatus["averageSpeed"],
-             config.systemStatus["distanceTravelled"]) = unpacked
-            # print("System status updated:", systemStatus)
+            calcCrc = crc8(data[1:config.SystemStatusStruct.size])
+            crc = payload[-1]
+            if (calcCrc == crc):
+                unpacked = config.SystemStatusStruct.unpack(payload)
+                (config.systemStatus["humidity"],
+                config.systemStatus["tempC"],
+                config.systemStatus["batteryVoltage"],
+                config.systemStatus["robotState"],
+                config.systemStatus["proximitySensors"],
+                config.systemStatus["currentBearing"],
+                config.systemStatus["pitch"],
+                config.systemStatus["roll"],
+                config.systemStatus["rightWheelSpeed"],
+                config.systemStatus["leftWheelSpeed"],
+                config.systemStatus["averageSpeed"],
+                config.systemStatus["distanceTravelled"],
+                crc) = unpacked
+                # print("System status updated:", systemStatus)
+            else:
+                print("SystemStatus CRC mismatch: calculated", calcCrc, "received", crc)
     elif cmd == config.REQ_STATUS_CMD:
         pass  # No additional data to process
 
@@ -76,6 +108,7 @@ def writeStatusToFIFO():
     response = config.PiStatusStruct.pack(config.piStatus["systemReady"], 
                                           config.piStatus["lidarProximity"], 
                                           config.piStatus["directionToDrive"])
+    response = response + bytes([crc8(response)])  # Add CRC as last byte
     config.pi.bsc_i2c(config.I2C_ADDR, response)
 
 
