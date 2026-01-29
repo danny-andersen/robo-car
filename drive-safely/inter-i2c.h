@@ -29,8 +29,8 @@
 #define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
 
 struct ObstacleData {
-  uint16_t bearing;   //Compass heading of the centre of the obstacle
-  uint16_t width;         //The width in degrees of view of the obstacle in front
+  uint16_t bearing;      //Compass heading of the centre of the obstacle
+  uint16_t width;        //The width in degrees of view of the obstacle in front
   uint16_t avgDistance;  //How far away the obstacle is
 };
 
@@ -49,7 +49,7 @@ struct StatusStruct {
 
 struct PiStatusStruct {
   uint8_t ready;              //0 == not ready
-  uint8_t lidarStatus;        //0 = not running
+  uint8_t lidarStatus;        //Bits set according to proximity bits
   uint16_t directionToDrive;  //1000 = direction not set
 };
 
@@ -76,8 +76,11 @@ StatusStruct periStatus;
 PiStatusStruct piStatus;
 SystemStatusStruct systemStatus;
 
-uint8_t sendStatus = 0;
 uint8_t numToReceive = 0;
+
+int8_t piOnBus = 1;    //0 means up and on the bus
+int8_t nanoOnBus = 1;  //0 means up and on the bus - anything else is an error
+
 
 bool waitForResponse() {
   unsigned long waitingTime = 0;
@@ -102,23 +105,22 @@ void flush() {
   }
 }
 
-bool rxStatus() {
-  bool retStatus = false;
+int8_t rxStatus() {
 
   Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(periStatus));
   if (waitForResponse()) {
     Wire.readBytes((byte *)&periStatus, sizeof(periStatus));
-    if (periStatus.proximityState != 0xFF) {
-      //Copy to system status to send to PI
-      systemStatus.proximityState = periStatus.proximityState;
-      systemStatus.rightWheelSpeed = periStatus.currentRightSpeed;
-      systemStatus.leftWheelSpeed = periStatus.currentLeftSpeed;
-      systemStatus.averageSpeed = periStatus.averageSpeed;
-      systemStatus.distanceTravelled = periStatus.distanceTravelled;
-      retStatus = true;
-    }
+    //Copy to system status to send to PI
+    systemStatus.proximityState = periStatus.proximityState;
+    systemStatus.rightWheelSpeed = periStatus.currentRightSpeed;
+    systemStatus.leftWheelSpeed = periStatus.currentLeftSpeed;
+    systemStatus.averageSpeed = periStatus.averageSpeed;
+    systemStatus.distanceTravelled = periStatus.distanceTravelled;
+    nanoOnBus = 0;
+  } else {
+    nanoOnBus = 1;
   }
-  return retStatus;
+  return nanoOnBus;
 }
 
 void sendStartMotorCmd() {
@@ -128,64 +130,112 @@ void sendStartMotorCmd() {
   Wire.endTransmission();
 }
 
-bool sendStopMotorCmd() {
+int8_t sendStopMotorCmd() {
   //Send command to peripheral nano that the drive motors are starting
   Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
   Wire.write(MOTOR_STOPPING_CMD);
-  Wire.endTransmission();
-  //Request a full status response
-  return rxStatus();
+  nanoOnBus = Wire.endTransmission();
+  if (!nanoOnBus) {
+    return rxStatus();
+  } else {
+    return nanoOnBus;
+  }
 }
 
-bool getStatusCmd() {
+int8_t getStatusCmd() {
   Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
   Wire.write(REQ_STATUS_CMD);
-  Wire.endTransmission();
+  nanoOnBus = Wire.endTransmission();
   //Should get a full status response
-  return rxStatus();
+  if (!nanoOnBus) {
+    return rxStatus();
+  } else {
+    return nanoOnBus;
+  }
 }
 
-uint8_t getProximityState() {
+int8_t readPiStatus() {
+  Wire.requestFrom(PI_ADDR, sizeof(piStatus));
+  if (waitForResponse()) {
+    //Should get pi status back acknowledging receipt
+    Wire.readBytes((byte *)&piStatus, sizeof(piStatus));
+    if (piStatus.ready == 1) {
+      piOnBus = 0;  //Correct ack
+    } else {
+      piOnBus = 1;  //Incorrect status read
+    }
+  }
+  flush();
+  return piOnBus;
+}
+
+int8_t getPiStatusCmd() {
+  Wire.beginTransmission(PI_ADDR);
+  Wire.write(REQ_STATUS_CMD);
+  piOnBus = Wire.endTransmission();
+  //Should get a status response
+  if (!piOnBus) {
+    piOnBus = readPiStatus();
+  }
+  return piOnBus;
+}
+
+
+int8_t getProximityState() {
   //Send command to peri uno to get status of all proximity sensors
-  uint8_t proximityState = 0xFF;  //Invalid state
   Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
   Wire.write(REQ_PROXIMITY_STATE_CMD);
-  Wire.endTransmission();
+  nanoOnBus = Wire.endTransmission();
   //Request data
-  Wire.requestFrom(UNO_PERIPHERAL_ADDR, 1);
-  if (waitForResponse()) {
-    proximityState = Wire.read();
-    // if (Serial) {
-    //   Serial.print("Rx proximity state: ");
-    //   Serial.println(proximityState);  // print the character
-    //   Serial.print("Front Left: ");
-    //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
-    //   Serial.print(" Front Right: ");
-    //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
-    //   Serial.print(" Rear Left: ");
-    //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
-    //   Serial.print(" Rear Right: ");
-    //   Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
-    //   Serial.print(" Top Front Left: ");
-    //   Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
-    //   Serial.print(" Top Front RIGHT: ");
-    //   Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
-    // }
-    // if (Wire.available() > 0) {
-    //   if (Serial) {
-    //     Serial.print("Still have bytes to read?? : ");
-    //     Serial.println(Wire.available());
-    //   }
-    //   while (Wire.available() > 0) Serial.print(Wire.read());
-    //   Serial.println();
-    // }
-  } else {
-    // if (Serial) {
-    //   Serial.println("Timed out from Nano");
-    // }
+  if (!nanoOnBus) {
+    Wire.requestFrom(UNO_PERIPHERAL_ADDR, 1);
+    if (waitForResponse()) {
+      systemStatus.proximityState = Wire.read();  // if (Serial) {
+      //   Serial.print("Rx proximity state: ");
+      //   Serial.println(proximityState);  // print the character
+      //   Serial.print("Front Left: ");
+      //   Serial.print((proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Front Right: ");
+      //   Serial.print((proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
+      //   Serial.print(" Rear Left: ");
+      //   Serial.print((proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Rear Right: ");
+      //   Serial.print((proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+      //   Serial.print(" Top Front Left: ");
+      //   Serial.print((proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
+      //   Serial.print(" Top Front RIGHT: ");
+      //   Serial.println((proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
+      // }
+      // if (Wire.available() > 0) {
+      //   if (Serial) {
+      //     Serial.print("Still have bytes to read?? : ");
+      //     Serial.println(Wire.available());
+      //   }
+      //   while (Wire.available() > 0) Serial.print(Wire.read());
+      //   Serial.println();
+      // }
+    } else {
+      nanoOnBus = 1;
+      // if (Serial) {
+      //   Serial.println("Timed out from Nano");
+      // }
+    }
   }
-  systemStatus.proximityState = proximityState;
-  return proximityState;
+  return nanoOnBus;
+}
+
+void getCombinedProximity() {
+  do {
+    //Try and read a valid proximatey status continuously
+    //Eventually the watchdog will trigger if cant get it - we cant proceed without it
+    nanoOnBus = getProximityState();
+  } while (nanoOnBus);
+  //Get the PI status, which includes the LIDAR proximity state, with the same bits set as the proximity sensors on the nano
+  piOnBus = getPiStatusCmd();
+  if (!piOnBus) {
+    //OR the lidar proximity status in with the IR proximity sensors
+    systemStatus.proximityState |= piStatus.lidarStatus;
+  }
 }
 
 bool checkFrontRightProximity(uint8_t status) {
@@ -203,6 +253,10 @@ bool checkFrontLeftProximity(uint8_t status) {
 
 bool getFrontLeftProximity() {
   uint8_t status = getProximityState();
+  //Get the PI status, which includes the LIDAR proximity state
+  getPiStatusCmd();
+  //OR this in with the IR proximity sensors
+  status |= piStatus.lidarStatus;
   return checkFrontLeftProximity(status);
 }
 
@@ -212,6 +266,10 @@ bool checkFrontProximity(uint8_t status) {
 
 bool getFrontProximity() {
   uint8_t status = getProximityState();
+  //Get the PI status, which includes the LIDAR proximity state
+  getPiStatusCmd();
+  //OR this in with the IR proximity sensors
+  status |= piStatus.lidarStatus;
   return checkFrontProximity(status);
 }
 
@@ -221,6 +279,10 @@ bool checkRearRightProximity(uint8_t status) {
 
 bool getRearRightProximity() {
   uint8_t status = getProximityState();
+  //Get the PI status, which includes the LIDAR proximity state
+  getPiStatusCmd();
+  //OR this in with the IR proximity sensors
+  status |= piStatus.lidarStatus;
   return checkRearRightProximity(status);
 }
 
@@ -230,6 +292,10 @@ bool checkRearLeftProximity(uint8_t status) {
 
 bool getRearLeftProximity() {
   uint8_t status = getProximityState();
+  //Get the PI status, which includes the LIDAR proximity state
+  getPiStatusCmd();
+  //OR this in with the IR proximity sensors
+  status |= piStatus.lidarStatus;
   return checkRearLeftProximity(status);
 }
 
@@ -238,65 +304,43 @@ bool checkRearProximity(uint8_t status) {
 }
 
 bool getRearProximity() {
-  uint8_t status = getProximityState();
-  return checkRearProximity(status);
-}
-
-int8_t readStatus() {
-  Wire.requestFrom(PI_ADDR, sizeof(piStatus));
-  if (waitForResponse()) {
-    //Should get pi status back acknowledging receipt
-    Wire.readBytes((byte *)&piStatus, sizeof(piStatus));
-    if (piStatus.ready == 1) {
-      sendStatus = 0;  //Correct ack
-    } else {
-      sendStatus = piStatus.ready;  //Incorrect status read
-    }
-  }
-  flush();
-  return sendStatus;
-}
-
-int8_t getPiStatusCmd() {
-  Wire.beginTransmission(PI_ADDR);
-  Wire.write(REQ_STATUS_CMD);
-  sendStatus = Wire.endTransmission();
-  //Should get a status response
-  if (!sendStatus) {
-    sendStatus = readStatus();
-  }
-  return sendStatus;
+  systemStatus.proximityState = getProximityState();
+  //Get the PI status, which includes the LIDAR proximity state
+  getPiStatusCmd();
+  //OR this in with the IR proximity sensors
+  systemStatus.proximityState |= piStatus.lidarStatus;
+  return checkRearProximity(systemStatus.proximityState);
 }
 
 int8_t sendSystemStatus() {
   Wire.beginTransmission(PI_ADDR);
   Wire.write(SEND_SYSTEM_STATUS_CMD);
   Wire.write((byte *)&systemStatus, sizeof(systemStatus));
-  sendStatus = Wire.endTransmission();
-  if (!sendStatus) {
+  piOnBus = Wire.endTransmission();
+  if (!piOnBus) {
     //Should get PI status in response
-    sendStatus = readStatus();
+    piOnBus = readPiStatus();
   }
-  return sendStatus;
+  return piOnBus;
 }
 
-int8_t sendObstacles(uint16_t heading, uint8_t numObjects, Arc* arcp) {
+int8_t sendObstacles(uint16_t heading, uint8_t numObjects, Arc *arcp) {
   // Serial.println("Sending obstacle cmd...");
   obstaclesCmd.currentCompassDirn = heading;
   obstaclesCmd.numOfObstaclesToSend = numObjects;
   Wire.beginTransmission(PI_ADDR);
   Wire.write(SENDING_OBSTACLES_CMD);
   Wire.write((byte *)&obstaclesCmd, sizeof(obstaclesCmd));
-  sendStatus = Wire.endTransmission();
-  if (!sendStatus) {
+  piOnBus = Wire.endTransmission();
+  if (!piOnBus) {
     //Should get PI status in response
-    sendStatus = readStatus();
-    if (!sendStatus) {
+    piOnBus = readPiStatus();
+    if (!piOnBus) {
       //In business
       //Now send each obstacle
       // Serial.println("Sending obstacles");
       int i = 0;
-      for (; i < numObjects && !sendStatus; i++) {
+      for (; i < numObjects && !piOnBus; i++) {
         obstacle.bearing = normalise(heading + (SERVO_CENTRE - arcp->centreDirection));
         obstacle.width = arcp->width;
         obstacle.avgDistance = arcp->avgDistance;
@@ -308,13 +352,15 @@ int8_t sendObstacles(uint16_t heading, uint8_t numObjects, Arc* arcp) {
         // Serial.print("Sent obstacle ");
         // Serial.println(i);
         //Should get PI status in response
-        sendStatus = readStatus();
+        piOnBus = readPiStatus();
       }
-      if (sendStatus) {
-        Serial.print("Failed to send all obstacles, sent: ");
-        Serial.println(i);
-      }
+      // if (piOnBus) {
+      //   if (Serial) {
+      //     Serial.print("Failed to send all obstacles, sent: ");
+      //     Serial.println(i);
+      //   }
+      // }
     }
   }
-  return sendStatus;
+  return piOnBus;
 }

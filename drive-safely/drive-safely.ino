@@ -15,7 +15,7 @@ unsigned long driveTimer = 0;
 int16_t directionToDrive = 0;
 float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
 Drive_State currentDriveState = STOPPED;
-uint8_t proximitySensors = 0xFF;
+Robot_State lastRobotState = INIT;
 
 uint16_t furthestDistance = 0;
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
@@ -30,6 +30,16 @@ float batteryVoltage = 0.0;
 
 unsigned long statusTimer = 0;
 
+void updateStatus() {
+  batteryVoltage = getBatteryVoltage();
+  setStatusLed(batteryVoltage);
+  systemStatus.batteryVoltage = int((batteryVoltage * 100) + 0.5);  //Save as an int but maintain precision
+  getTempHumidityInt(&systemStatus.tempC, &systemStatus.humidity);
+  //Send status to PI
+  sendSystemStatus();
+  lastRobotState = systemStatus.robotState;
+}
+
 void setup() {
   // Serial.begin(9600);
   systemStatus.robotState = INIT;
@@ -42,12 +52,20 @@ void setup() {
   compassReady = compass_init();
   waitUntilCalibrated();
   motor_Init();
-  distanceSensorInit(); 
+  distanceSensorInit();
   //Wait until peripheral nano ready
-  proximitySensors = getProximityState();
-  waitUntilCalibrated();
+  do {
+    nanoOnBus = getProximityState();
+  } while (nanoOnBus);
+  //Wait until pi is up and running
+  do {
+    piOnBus = getPiStatusCmd();
+    //returns 0 when got a valid status
+  } while (piOnBus);
   delay(1000);
   systemStatus.currentBearing = getCompassBearing();
+  updateStatus();
+  statusTimer = 0;
   wdt_enable(WDTO_4S);
   systemStatus.robotState = SWEEP;
 }
@@ -68,19 +86,18 @@ void loop() {
     systemStatus.robotState = SWEEP;
   }
 
+  systemStatus.currentBearing = getCompassBearing();
+  currentDirectionRad = getCompassBearingRads();
+
+
   statusTimer += LOOP_TIME;
   if (statusTimer > STATUS_TIME) {
     statusTimer = 0;
-    batteryVoltage = getBatteryVoltage();
-    setStatusLed(batteryVoltage);
-    systemStatus.batteryVoltage = getBatteryVoltageInt();
-    getTempHumidityInt(&systemStatus.tempC, &systemStatus.humidity);
-    //Send status to PI
+    updateStatus();
+  } else if (lastRobotState != systemStatus.robotState) {
     sendSystemStatus();
+    lastRobotState = systemStatus.robotState;
   }
-
-  systemStatus.currentBearing = getCompassBearing();
-  currentDirectionRad = getCompassBearingRads();
 
   // if (Serial) {
   //   Serial.print("STATE: ");
@@ -126,34 +143,42 @@ void loop() {
       //Cant do anything
       // if (Serial) Serial.println("Init failed, halting...");
       drive(STOP, currentDirectionRad, 0);
+      sendStopMotorCmd();
+      currentDriveState = STOPPED;
       systemStatus.robotState = STOPPED;
       break;
     case OFF_GROUND:
       sendStopMotorCmd();
+      currentDriveState = STOPPED;
       drive(STOP, currentDirectionRad, 0);
       break;
     default:
       // if (Serial) Serial.println("In unknown state...");
       sendStopMotorCmd();
+      currentDriveState = STOPPED;
       drive(STOP, currentDirectionRad, 0);
       systemStatus.robotState = STOPPED;
       break;
   }
+
   delay(LOOP_TIME);
 }
 
 Robot_State adjustDirection() {
   Robot_State returnState = ROTATING;
   //Something low down caused the stop
-  if (checkFrontRightProximity(proximitySensors) && !checkFrontLeftProximity(proximitySensors)) {
+  if (checkFrontRightProximity(systemStatus.proximityState) && !checkFrontLeftProximity(systemStatus.proximityState)) {
     //Rotate a bit left
     directionToDrive -= 20;
 
-  } else if (checkFrontLeftProximity(proximitySensors) && !checkFrontRightProximity(proximitySensors)) {
+  } else if (checkFrontLeftProximity(systemStatus.proximityState) && !checkFrontRightProximity(systemStatus.proximityState)) {
     //Rotate a bit to the right
     directionToDrive += 20;
-  } else if (checkFrontProximity(proximitySensors)) {
+  } else if (checkFrontProximity(systemStatus.proximityState)) {
     //Need to backout a little and sweep
+    drivingForward = false;
+    currentDriveState = STOPPED;
+    sendStopMotorCmd();
     returnState = BACK_OUT;
   }
   return returnState;
@@ -182,8 +207,8 @@ Robot_State sweepAndFindDirection() {
   } else if (sweepStatus == BLOCKED_AHEAD) {
     //Turn 180 and sweep
     systemStatus.robotState = UTURN_SWEEP;
-  } else if (sweepStatus == CANNOT_TURN) {
-    systemStatus.robotState = BACK_OUT;
+    // } else if (sweepStatus == CANNOT_TURN) {
+    //   systemStatus.robotState = BACK_OUT;
   }
   return systemStatus.robotState;
 }
@@ -191,25 +216,23 @@ Robot_State sweepAndFindDirection() {
 void driveAndScan() {
   uint16_t distanceClear = clearDistanceAhead();
   //Check speed, distance and for any immediate obstructions
-  bool status = false;
-  do {
-    //Try and read a valid proximatey status continuously
-    //Eventually the watchdog will trigger if cant get it
-    status = getStatusCmd();
-  } while (!status);
-  bool wheelTrapped = ((periStatus.currentLeftSpeed == 0 || periStatus.currentRightSpeed == 0) && periStatus.distanceTravelled > 10);
+  getCombinedProximity();
+  // bool wheelTrapped = ((periStatus.currentLeftSpeed == 0 || periStatus.currentRightSpeed == 0) && periStatus.distanceTravelled > 10);
+  bool wheelTrapped = false;
   // bool rolled = rollingOrPitching();
   bool rolled = false;
-  proximitySensors = getProximityState();
-  bool hitSomething = checkFrontProximity(proximitySensors);
+  bool hitSomething = checkFrontProximity(systemStatus.proximityState);
   if (wheelTrapped || rolled) {
     ////Weve hit something or one of the wheels aint turning
     systemStatus.robotState = BACK_OUT;
+    sendStopMotorCmd();
+    currentDriveState = STOPPED;
+    drivingForward = false;
   } else if (hitSomething) {
     systemStatus.robotState = adjustDirection();
   } else if (distanceClear > 100) {
     //Charge!
-    drive(FORWARD, currentDirectionRad, 125);
+    drive(FORWARD, currentDirectionRad, 100);
     currentDriveState = DRIVE_FORWARD;
   } else if (distanceClear < 100 && distanceClear > 50) {
     //Slow

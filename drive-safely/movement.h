@@ -38,42 +38,25 @@ bool rotateTo(int16_t directionRequired) {
   int16_t currentDirn = getCompassBearing();  // Before we work out which direction to turn, remember what straightahead is
   int16_t rotate = getRotation(currentDirn, directionRequired);
   // int16_t startingYaw = yaw;
-  // if (Serial) {
-  //   Serial.print("Rotating to: ");
-  //   Serial.print(directionRequired);
-  //   Serial.print(" Rotate Angle: ");
-  //   Serial.print(rotate);
-  //   Serial.print(", straightahead is ");
-  //   Serial.println(currentDirn);
-  // }
   if (rotate == 0) return true;
   long timer = 0;
   long backTimer = 0;
   long forwardTimer = 0;
   int16_t diff = rotate;  //Initial rotation amount and direction
   bool triedOtherDirn = false;
-  //Start rotation
-  if (rotate > 0) {
-    // Rotate right
-    driveMotor(ROTATE_RIGHT, 75, 75);
-  } else {
-    // Rotate left
-    driveMotor(ROTATE_LEFT, 75, 75);
-  }
-
   do {
-    delay(ROTATE_CHECK_INTERVAL);
-    wdt_reset();
-    timer += ROTATE_CHECK_INTERVAL;  // Prevent continuous spinning if something goes wrong
     if (leftGround()) {
       driveMotor(STOP, 0, 0);
       break;
     }
-    // Check for obstacles when turning
-    uint8_t proximity = getProximityState();
+    getCombinedProximity();
+    if (systemStatus.proximityState) {
+      //Update PI log
+      sendSystemStatus();
+    }
     if (rotate > 0) {
       // Rotating right
-      if (checkFrontRightProximity(proximity) && checkRearLeftProximity(proximity)) {
+      if (checkFrontRightProximity(systemStatus.proximityState) && checkRearLeftProximity(systemStatus.proximityState)) {
         // We cant rotate this way
         // Try the other way
         if (!triedOtherDirn) {
@@ -86,7 +69,7 @@ bool rotateTo(int16_t directionRequired) {
           driveMotor(STOP, 0, 0);
           return false;
         }
-      } else if (checkFrontRightProximity(proximity)) {
+      } else if (checkFrontRightProximity(systemStatus.proximityState) && !checkRearLeftProximity(systemStatus.proximityState))  {
         // Cant rotate - need to back up a bit before rotating
         if (backTimer > 0) {
           // We dont have much room to the rear, only back up until obstruction gone
@@ -95,7 +78,7 @@ bool rotateTo(int16_t directionRequired) {
           backTimer = 400;
         }
         forwardTimer = 0;
-      } else if (checkRearLeftProximity(proximity)) {
+      } else if (checkRearLeftProximity(systemStatus.proximityState)) {
         // Cant rotate - need to go forward a bit before rotating
         if (forwardTimer > 0) {
           // Dont have much room to the front, only go forward until obstruction gone
@@ -106,10 +89,10 @@ bool rotateTo(int16_t directionRequired) {
         backTimer = 0;
       }
       if (backTimer > 0) {
-        driveMotor(BACK, 75, 75);
+        driveMotor(BACK, 50, 50);
         backTimer -= ROTATE_CHECK_INTERVAL;
       } else if (forwardTimer >= 0) {
-        driveMotor(FORWARD, 75, 75);
+        driveMotor(FORWARD, 50, 50);
         forwardTimer -= ROTATE_CHECK_INTERVAL;
       } else {
         driveMotor(ROTATE_RIGHT, 75, 75);
@@ -117,7 +100,7 @@ bool rotateTo(int16_t directionRequired) {
     } else {
       //Rotating left
       // Check for obstacles when turning
-      if (checkFrontLeftProximity(proximity) && checkRearRightProximity(proximity)) {
+      if (checkFrontLeftProximity(systemStatus.proximityState) && checkRearRightProximity(systemStatus.proximityState)) {
         // We cant rotate this way
         // Try the other way
         if (!triedOtherDirn) {
@@ -131,7 +114,7 @@ bool rotateTo(int16_t directionRequired) {
           driveMotor(STOP, 0, 0);
           return false;
         }
-      } else if (checkFrontLeftProximity(proximity)) {
+      } else if (checkFrontLeftProximity(systemStatus.proximityState) && !checkRearRightProximity(systemStatus.proximityState)) {
         // Cant rotate - need to back up a bit before rotating
         if (backTimer > 0) {
           // We dont have much room to the rear, only back up until obstruction gone
@@ -140,7 +123,7 @@ bool rotateTo(int16_t directionRequired) {
           backTimer = 400;
         }
         forwardTimer = 0;
-      } else if (checkRearRightProximity(proximity)) {
+      } else if (checkRearRightProximity(systemStatus.proximityState)) {
         // Cant rotate - need to go forward a bit before rotating
         if (forwardTimer > 0) {
           // Dont have much room to the front, only go forward until obstruction gone
@@ -151,16 +134,19 @@ bool rotateTo(int16_t directionRequired) {
         backTimer = 0;
       }
       if (backTimer > 0) {
-        driveMotor(BACK, 75, 75);
+        driveMotor(BACK, 50, 50);
         backTimer -= ROTATE_CHECK_INTERVAL;
       } else if (forwardTimer >= 0) {
-        driveMotor(FORWARD, 75, 75);
+        driveMotor(FORWARD, 50, 50);
         forwardTimer -= ROTATE_CHECK_INTERVAL;
       } else {
         // Rotate left
         driveMotor(ROTATE_LEFT, 75, 75);
       }
     }
+    delay(ROTATE_CHECK_INTERVAL);
+    timer += ROTATE_CHECK_INTERVAL;  // Prevent continuous spinning if something goes wrong
+    wdt_reset();
     currentDirn = getCompassBearing();  // Before we work out which direction to turn, remember what straightahead is
     rotate = getRotation(currentDirn, directionRequired);
     // if (Serial) {
@@ -235,9 +221,9 @@ void backOut() {
   float forwardDirection = getCompassBearingRads();
   bool removingPitchOrRoll = false;
   unsigned long backoutTimer = 0;
-  drive(BACK, forwardDirection, 50);
   do {
-    if (leftGround() || getRearProximity()) {
+    getCombinedProximity();
+    if (leftGround() || checkRearProximity(systemStatus.proximityState)) {
       // Something behind us or we have back been picked up - stop
       break;
     }

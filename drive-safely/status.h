@@ -25,10 +25,6 @@ float getBatteryVoltage() {
   return voltage;
 }
 
-int getBatteryVoltageInt() {
-  return int((getBatteryVoltage() * 100) + 0.5);
-}
-
 void setStatusLed(float voltage) {
   if (voltage > 8.2) {
     leds[0] = 0x00cc00;
