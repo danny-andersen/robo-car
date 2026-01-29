@@ -57,3 +57,4 @@ dkms.conf
 #Pi Python env files
 pi-controller/venv/
 pi-controller/__pycache__/
+pi-controller/robo-status.html
