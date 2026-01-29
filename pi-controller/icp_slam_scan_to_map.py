@@ -5,19 +5,26 @@ from scipy.ndimage import distance_transform_edt
 
 class ICP_SLAM:
     def __init__(self, map_size_m=16.0, resolution=0.02):
+        """
+        map_size_m: physical width/height of map in meters
+        resolution: meters per cell
+        """
         self.res = resolution
-        self.size = int(map_size_m / resolution)
+        self.size = int(map_size_m / resolution)  # pixels per side
         self.map = np.zeros((self.size, self.size), dtype=np.uint8)
 
         # Distance field
         self.dist = np.zeros_like(self.map, dtype=float)
 
-        # Pose in mm / rad
+        # Pose in world frame (mm, mm, rad)
         map_width_mm = (self.size * self.res) * 1000.0
         self.x = map_width_mm / 2.0
         self.y = map_width_mm / 2.0
         self.theta = 0.0
 
+    # ---------------------------------------------------------
+    # Polar scan → Cartesian points in robot frame (mm)
+    # ---------------------------------------------------------
     def scan_to_points(self, scan_mm):
         angles = np.deg2rad(np.arange(360))
         d = np.array(scan_mm, dtype=float)
@@ -28,11 +35,17 @@ class ICP_SLAM:
         y = d[mask] * np.sin(angles[mask])
         return np.vstack((x, y)).T
 
+    # ---------------------------------------------------------
+    # Distance field from occupancy grid
+    # ---------------------------------------------------------
     def update_distance_field(self):
         # Obstacles = 0, free = 1
         occ = (self.map == 0).astype(float)
         self.dist = distance_transform_edt(occ) * self.res  # meters
 
+    # ---------------------------------------------------------
+    # Robot frame → world frame (mm)
+    # ---------------------------------------------------------
     def transform_points_world(self, pts, x_mm, y_mm, theta):
         c = math.cos(theta)
         s = math.sin(theta)
@@ -40,14 +53,20 @@ class ICP_SLAM:
         wy = y_mm + (s * pts[:, 0] + c * pts[:, 1])
         return wx, wy
 
+    # ---------------------------------------------------------
+    # World mm → grid indices
+    # ---------------------------------------------------------
     def world_to_grid(self, wx, wy):
         x_m = wx / 1000.0
         y_m = wy / 1000.0
         ix = (x_m / self.res).astype(int)
         iy = (y_m / self.res).astype(int)
-        iy = self.size - 1 - iy
+        iy = self.size - 1 - iy  # flip Y
         return ix, iy
 
+    # ---------------------------------------------------------
+    # Pose scoring using distance field (lower distance = better)
+    # ---------------------------------------------------------
     def score_pose(self, pts, x_mm, y_mm, theta):
         if pts.shape[0] == 0:
             return -np.inf
@@ -62,16 +81,18 @@ class ICP_SLAM:
         ix = ix[mask]
         iy = iy[mask]
 
-        # Lower distance = better match → use negative sum as score
+        # Negative sum of distances → higher score = better alignment
         return -np.sum(self.dist[iy, ix])
 
+    # ---------------------------------------------------------
+    # Scan-to-map refinement: x,y only (theta from IMU)
+    # ---------------------------------------------------------
     def refine_pose_scan_to_map(self, pts):
-        # Small search around current pose
         trans_step_mm = 20.0  # 2 cm
-        rot_step_rad = math.radians(0.5)  # smaller angular step
-
         trans_offsets = [-trans_step_mm, 0.0, trans_step_mm]
-        rot_offsets = [-rot_step_rad, 0.0, rot_step_rad]
+
+        # No rotation search: theta fixed from IMU
+        rot_offsets = [0.0]
 
         base_score = self.score_pose(pts, self.x, self.y, self.theta)
         best_score = base_score
@@ -79,10 +100,10 @@ class ICP_SLAM:
 
         for dx in trans_offsets:
             for dy in trans_offsets:
-                for dth in rot_offsets:
+                for dth in rot_offsets:  # dth is always 0.0 here
                     cx = self.x + dx
                     cy = self.y + dy
-                    cth = self.theta + dth
+                    cth = self.theta  # fixed
 
                     score = self.score_pose(pts, cx, cy, cth)
                     if score > best_score:
@@ -91,58 +112,52 @@ class ICP_SLAM:
 
         return best_pose, base_score, best_score
 
-    def update(self, scan_mm):
+    # ---------------------------------------------------------
+    # Map update at current pose
+    # ---------------------------------------------------------
+    def update_map(self, pts):
+        if pts.shape[0] == 0:
+            return
+
+        wx, wy = self.transform_points_world(pts, self.x, self.y, self.theta)
+        ix, iy = self.world_to_grid(wx, wy)
+
+        mask = (ix >= 0) & (ix < self.size) & (iy >= 0) & (iy < self.size)
+        ix = ix[mask]
+        iy = iy[mask]
+
+        self.map[iy, ix] = 255
+
+    # ---------------------------------------------------------
+    # Main update: scan + IMU heading
+    # ---------------------------------------------------------
+    def update(self, scan_mm, imu_theta):
         pts = self.scan_to_points(scan_mm)
         if pts.shape[0] == 0:
             return
 
-        # 1. Build distance field from current map
+        # 1. Use IMU heading as primary theta
+        self.theta = imu_theta
+
+        # 2. Build distance field from current map
         self.update_distance_field()
 
-        # 2. Refine pose with scan-to-map
-        (new_x, new_y, new_th), old_score, new_score = self.refine_pose_scan_to_map(pts)
+        # 3. Refine x,y only using scan-to-map
+        (new_x, new_y, new_th), old_score, new_score = \
+            self.refine_pose_scan_to_map(pts)
 
-        dx = new_x - self.x
-        dy = new_y - self.y
-        dth = new_th - self.theta
+        # Simple gating: accept only if score improves
+        if new_score > old_score:
+            self.x = new_x
+            self.y = new_y
+            # theta remains IMU-driven
 
-        score_improvement = new_score - old_score
-
-        # Gating thresholds
-        max_trans_step_mm = 100.0
-        max_rot_step_rad = math.radians(5.0)
-        min_score_improvement = 0.0  # you can raise this
-
-        # Reject crazy rotations and tiny "fake" improvements
-        if (
-            score_improvement > min_score_improvement and
-            abs(dx) < max_trans_step_mm and
-            abs(dy) < max_trans_step_mm
-        ):
-            # Rotation is much more fragile – gate it harder
-            if abs(dth) < max_rot_step_rad:
-                # Accept full update
-                self.x, self.y, self.theta = new_x, new_y, new_th
-            else:
-                # Accept translation, reject rotation
-                self.x, self.y = new_x, new_y
-                # theta unchanged
-        # else: keep previous pose
-
-        # 3. Update map at (possibly updated) pose
+        # 4. Update map with scan at (x,y,theta)
         self.update_map(pts)
 
-
-    def update_map(self, pts):
-        if pts.shape[0] == 0:
-            return
-        wx, wy = self.transform_points_world(pts, self.x, self.y, self.theta)
-        ix, iy = self.world_to_grid(wx, wy)
-        mask = (ix >= 0) & (ix < self.size) & (iy >= 0) & (iy < self.size)
-        ix = ix[mask]
-        iy = iy[mask]
-        self.map[iy, ix] = 255
-
+    # ---------------------------------------------------------
+    # Accessors
+    # ---------------------------------------------------------
     def get_pose(self):
         return self.x, self.y, self.theta
 

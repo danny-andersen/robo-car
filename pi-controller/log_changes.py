@@ -16,13 +16,25 @@ def _flatten_state():
     
     flat = {}
 
-    # systemStatus
+    # systemStatus 
     for k, v in config.systemStatus.items():
-        flat[f"systemStatus.{k}"] = v
-
+        if k == "robotState": 
+            # Convert numeric enum to text safely 
+            if 0 <= v < len(config.ROBOT_STATE_NAMES):
+                flat[f"systemStatus.{k}"] = config.ROBOT_STATE_NAMES[v]
+            else:
+                flat[f"systemStatus.{k}"] = f"UNKNOWN({v})"
+        elif "roximity" in k: 
+            flat[f"systemStatus.{k}"] = config.printableProximity(v)
+        else:
+            flat[f"systemStatus.{k}"] = v
+        
     # piStatus
     for k, v in config.piStatus.items():
-        flat[f"piStatus.{k}"] = v
+        if "roximity" in k: 
+            flat[f"systemStatus.{k}"] = config.printableProximity(v)
+        else:
+            flat[f"piStatus.{k}"] = v
 
     # obstaclesCmd
     for k, v in config.obstaclesCmd.items():
@@ -39,12 +51,23 @@ def _flatten_state():
 def _flatten_state_no_obstacles(): 
     """Used only for change detection.""" 
     flat = {} 
-    for k, v in config.obstaclesCmd.items():
-        flat[f"obstaclesCmd.{k}"] = v
-    for k, v in config.systemStatus.items(): 
-        flat[f"systemStatus.{k}"] = v 
+    # systemStatus 
+    for k, v in config.systemStatus.items():
+        if k == "robotState": 
+            # Convert numeric enum to text safely 
+            if 0 <= v < len(config.ROBOT_STATE_NAMES):
+                flat[f"systemStatus.{k}"] = config.ROBOT_STATE_NAMES[v]
+            else:
+                flat[f"systemStatus.{k}"] = f"UNKNOWN({v})"
+        elif "roximity" in k: 
+            flat[f"systemStatus.{k}"] = config.printableProximity(v)
+        else:
+            flat[f"systemStatus.{k}"] = v
     for k, v in config.piStatus.items():
-        flat[f"piStatus.{k}"] = v
+        if "roximity" in k: 
+            flat[f"systemStatus.{k}"] = config.printableProximity(v)
+        else:
+            flat[f"piStatus.{k}"] = v
     return flat
 
 # --- Utility: detect changes between snapshots ---

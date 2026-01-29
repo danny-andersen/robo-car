@@ -95,7 +95,7 @@ class LD19Reader(threading.Thread):
                             self.scan_accum[idx] = dist
                         self.filled[idx] = True
                     # If a large portion is filled, publish a scan
-                    if self.filled.sum() > 300:  # threshold for "complete" scan
+                    if self.filled.sum() > 350:  # threshold for "complete" scan
                         self.latest_scan = np.copy(self.scan_accum)
                         # Reset accumulators for the next revolution
                         self.scan_accum[:] = DISTANCE_NO_OBSTACLE_MM

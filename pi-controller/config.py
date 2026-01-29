@@ -17,6 +17,27 @@ MOTOR_STOPPING_CMD = 0x06
 REQ_STATUS_CMD = 0x07
 SEND_SYSTEM_STATUS_CMD = 0x08
 
+#Proximity states (bitmask)
+LIDAR_PROXIMITY_NONE = 0x00
+FRONT_LEFT_PROX_BIT = 0
+FRONT_RIGHT_PROX_BIT = 1
+REAR_LEFT_PROX_BIT = 2
+REAR_RIGHT_PROX_BIT = 3
+FRONT_LEFT_PROX_SET = 0x01
+FRONT_RIGHT_PROX_SET = 0x02
+REAR_LEFT_PROX_SET = 0x04
+REAR_RIGHT_PROX_SET = 0x08
+
+#Proximity thresholds (mm)
+PROXIMITY_THRESHOLD_FRONT_MM = 200 #Anything closer than this is considered an obstacle directly in front
+PROXIMITY_ANGLE_FRONT_LEFT = 330 #Angle (degrees) to left of front for proximity checking
+PROXIMITY_ANGLE_FRONT_RIGHT = 30 #Angle (degrees) to right of front for proximity checking
+
+PROXIMITY_THRESHOLD_REAR_MM = 45 #Anything closer than this is considered an obstacle directly on the rear
+PROXIMITY_ANGLE_REAR_LEFT = 240 #Angle (degrees) limit on left side
+PROXIMITY_ANGLE_REAR_RIGHT = 120 #Angle (degrees) on right side 
+
+
 # -----------------------------
 # Struct definitions
 # -----------------------------
@@ -26,6 +47,8 @@ SystemStatusStruct = struct.Struct("<hhHBBhbbBBBB")
 PiStatusStruct = struct.Struct("<BBH")
 
 MAX_OBS = 20
+
+pi = None  # To be initialized in i2c_init() in i2c_slave.py
 
 # -----------------------------
 # State variables
@@ -62,7 +85,30 @@ systemStatus = {
 
 piStatus = {
     "systemReady": 0,
-    "lidarRunning": 0,
+    "lidarProximity": 0, # LIDAR proximity state: Bits are set as per LIDAR_PROXIMITY_xxx constants, which match proximity sensor bits
     "directionToDrive": 1000 # Value indicating no direction set
 }
 
+ROBOT_STATE_NAMES = [ "INIT", "INIT_FAILED", "DRIVE", "ROTATING", "SWEEP", "UTURN_SWEEP", "BACK_OUT", "OFF_GROUND", ]
+
+#LIDAR
+SERIAL_PORT = "/dev/ttyS0"   # GPIO serial port on Raspberry Pi
+
+
+# SLAM/map parameters
+MAP_SIZE_PIXELS = 800          # Occupancy grid width/height
+MAP_SIZE_METERS = 16.0         # Map width/height in meters
+
+def printableProximity(proxStatus):    
+    parts = []
+    if proxStatus & FRONT_LEFT_PROX_SET:
+        parts.append("Front Left")
+    if proxStatus & FRONT_RIGHT_PROX_SET:
+        parts.append("Front Right")
+    if proxStatus & REAR_LEFT_PROX_SET:
+        parts.append("Rear Left")
+    if proxStatus & REAR_RIGHT_PROX_SET:
+        parts.append("Rear Right")
+    return ", ".join(parts) if parts else "None" 
+         
+smoothedScan = [0] * 360

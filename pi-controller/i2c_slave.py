@@ -64,70 +64,75 @@ def on_receive(cmd, data):
              config.systemStatus["averageSpeed"],
              config.systemStatus["distanceTravelled"]) = unpacked
             # print("System status updated:", systemStatus)
+    elif cmd == config.REQ_STATUS_CMD:
+        pass  # No additional data to process
+
     else:
         print("Unknown command received:", cmd)
         pass  # Unknown command
 
 
 def writeStatusToFIFO():
-    global piStatus
-
-    response = config.PiStatusStruct.pack(config.piStatus["systemReady"], config.piStatus["lidarRunning"], config.piStatus["directionToDrive"])
-    pi.bsc_i2c(config.I2C_ADDR, response)
+    response = config.PiStatusStruct.pack(config.piStatus["systemReady"], 
+                                          config.piStatus["lidarProximity"], 
+                                          config.piStatus["directionToDrive"])
+    config.pi.bsc_i2c(config.I2C_ADDR, response)
 
 
 def i2cEvent(id, tick):
-   global pi
-   status, bytesRead, data = pi.bsc_i2c(config.I2C_ADDR)
+   status, bytesRead, data = config.pi.bsc_i2c(config.I2C_ADDR)
 #    print ("I2C Event: status={}, bytesRead={}, data={}".format(status, bytesRead, data))
    if bytesRead:
     cmd = data[0]
-    # Always write status to FIFO first so master gets it as ack
+    # Always write status to FIFO first so master gets it as ack on next message
     writeStatusToFIFO()
-    if (cmd == config.SENDING_OBSTACLES_CMD) or (cmd == config.NEXT_OBSTACLE_CMD) or (cmd == config.SEND_SYSTEM_STATUS_CMD):
-        on_receive(cmd, data)
+    on_receive(cmd, data)
+    if cmd == config.SEND_SYSTEM_STATUS_CMD or cmd == config.REQ_STATUS_CMD:
         log_changes.record_status_change()
-        # if (cmd == SEND_SYSTEM_STATUS_CMD):
-        #     print(systemStatus)
-        # elif (cmd == NEXT_OBSTACLE_CMD):
-        #     print(obstacles[numObstaclesRx - 1])
-        # elif (cmd == SENDING_OBSTACLES_CMD):
-        #     print(obstaclesCmd)
-    elif cmd == config.REQ_STATUS_CMD:
-        # print(f"Req status command received {cmd}")
-        pass
-    else:
-        print(f"Unknown Cmd received {cmd} No response sent")
+    # if (cmd == SEND_SYSTEM_STATUS_CMD):
+    #     print(systemStatus)
+    # elif (cmd == NEXT_OBSTACLE_CMD):
+    #     print(obstacles[numObstaclesRx - 1])
+    # elif (cmd == SENDING_OBSTACLES_CMD):
+    #     print(obstaclesCmd)
+    # print(f"Req status command received {cmd}")
+
+def i2c_init():
+    # -----------------------------
+    # pigpio I2C slave setup
+    # -----------------------------
+    config.pi = pigpio.pi()
+    if not config.pi.connected:
+        raise RuntimeError("pigpio daemon not running")
+
+    eventHandle = config.pi.event_callback(pigpio.EVENT_BSC, i2cEvent)
+
+    config.pi.bsc_i2c(config.I2C_ADDR)
+    print(f"I2C slave active at address {config.I2C_ADDR}")
+    config.piStatus["systemReady"] = 1
+    writeStatusToFIFO()
+    return eventHandle
 
 # -----------------------------
 # pigpio I2C slave setup
 # -----------------------------
-pi = pigpio.pi()
-if not pi.connected:
-    raise RuntimeError("pigpio daemon not running")
+if __name__ == '__main__':
 
-eventHandle = pi.event_callback(pigpio.EVENT_BSC, i2cEvent)
+    eventHandle = i2c_init()
+    # -----------------------------
+    # Main loop
+    # -----------------------------
+    try:
+        while True:
+            # directionToDrive = (directionToDrive + 10) % 360
+            # for i in range(0,MAX_OBS):
+            #     if obstacles[i]["avgDistance"] != 0:
+            #         print(f"Obstacle {i}: {obstacles[i]}")
+            time.sleep(15)
 
-pi.bsc_i2c(config.I2C_ADDR)
-print(f"I2C slave active at address {config.I2C_ADDR}")
-config.piStatus["systemReady"] = 1
-config.piStatus["lidarRunning"] = 0
-writeStatusToFIFO()
+    except KeyboardInterrupt:
+        pass
 
-# -----------------------------
-# Main loop
-# -----------------------------
-try:
-    while True:
-        # directionToDrive = (directionToDrive + 10) % 360
-        # for i in range(0,MAX_OBS):
-        #     if obstacles[i]["avgDistance"] != 0:
-        #         print(f"Obstacle {i}: {obstacles[i]}")
-        time.sleep(15)
-
-except KeyboardInterrupt:
-    pass
-
-finally:
-    eventHandle.cancel()
-    pi.stop()
+    finally:
+        eventHandle.cancel()
+        config.pi.stop()
