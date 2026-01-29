@@ -5,8 +5,8 @@
 
 #define FRONT_LEFT_PROX_SENSOR 6
 #define FRONT_RIGHT_PROX_SENSOR 7
-#define REAR_LEFT_PROX_SENSOR 4
-#define REAR_RIGHT_PROX_SENSOR 5
+#define REAR_LEFT_PROX_SENSOR 5
+#define REAR_RIGHT_PROX_SENSOR 4
 #define FRONT_LEFT_WHEEL_SENSOR 3
 #define FRONT_RIGHT_WHEEL_SENSOR 2
 #define TOP_FRONT_RIGHT_PROX_SENSOR 8
@@ -75,7 +75,6 @@ void loop() {
       distanceTravelled = (pulseCounterRight + pulseCounterLeft) * DISTANCE_PER_PULSE / 2;
       periStatus.distanceTravelled = int(distanceTravelled + 0.5);
       periStatus.averageSpeed = int((1000 * distanceTravelled / movingTime) + 0.5);
-      periStatus.proximityState = readProximitySensors();
       // if (Serial) {
       //   // Serial.print("Proximity: ");
       //   // Serial.println(readProximitySensors());
@@ -124,6 +123,7 @@ uint8_t readProximitySensors() {
 
 void returnStatus() {
   //Note: status is updated in each loop
+  periStatus.proximityState = readProximitySensors();
   Wire.write((byte *)&periStatus, sizeof(periStatus));
 }
 
@@ -135,55 +135,6 @@ void handleProximityRequest() {
   //   Serial.println(digitalState);
   // }
   Wire.write(digitalState);
-}
-
-void handleDirectionRequest() {
-  //Return compass direction to drive
-  direction.directionToDrive = obstaclesCmd.currentCompassDirn + obstacles[10].relDirection;
-  // if (Serial) {
-  //   Serial.println("Rx Request for REQ_DIRECTION_TO_DRIVE_CMD");
-  //   Serial.print("Sending direction: ");
-  //   Serial.println(direction.directionToDrive);
-  // }
-
-  Wire.write((byte *)&direction, sizeof(direction));
-}
-
-
-void handleObstaclesCmd() {
-  while (Wire.available() < sizeof(obstaclesCmd)) {
-    // Serial.println("Waiting for rest of obstacle cmd");
-    delay(10);
-  }
-  Wire.readBytes((byte *)&obstaclesCmd, sizeof(obstaclesCmd));
-  // if (Serial) {
-  //   Serial.print("Rx SENDING_OBSTACLES_CMD, total: ");
-  //   Serial.print(obstaclesCmd.numOfObstaclesToSend);
-  //   Serial.print(" Compass Dirn: ");
-  //   Serial.println(obstaclesCmd.currentCompassDirn);
-  // }
-  numObstaclesRx = 0;  //Reset number received
-  for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
-    obstacles[i].avgDistance = 0;  //Reset any previous obstacles to 0
-  }
-  // Bridge.notify("resetObstacles".obstaclesCmd.currentCompassDirn);
-}
-
-void handleNextObstacle() {
-  Wire.readBytes((byte *)&obstacles[numObstaclesRx], sizeof(obstacles[numObstaclesRx]));
-  // if (Serial) {
-  //   Serial.print("Rx NEXT_OBSTACLE_CMD, number: ");
-  //   Serial.print(numObstaclesRx);
-  //   Serial.print(" Rel dirn: ");
-  //   Serial.print(obstacles[numObstaclesRx].relDirection);
-  //   Serial.print(" Width: ");
-  //   Serial.print(obstacles[numObstaclesRx].width);
-  //   Serial.print(" Distance: ");
-  //   Serial.print(obstacles[numObstaclesRx].avgDistance);
-  // }
-  // Bridge.notify("obstacleInFront", )
-
-  numObstaclesRx++;
 }
 
 void flickerLED() {
@@ -212,9 +163,6 @@ void request_handler() {
   switch (currentCommand) {
     case REQ_PROXIMITY_STATE_CMD:
       handleProximityRequest();
-      break;
-    case REQ_DIRECTION_TO_DRIVE_CMD:
-      handleDirectionRequest();
       break;
     case MOTOR_STOPPING_CMD:
       //This command also expects a status returned
@@ -251,14 +199,6 @@ void command_handler(int numRx) {
     case REQ_PROXIMITY_STATE_CMD:
       //Return digital state on request
       // Serial.println("Rx REQ_PROXIMITY_STATE_CMD");
-      break;
-    case SENDING_OBSTACLES_CMD:
-      //Will receive multiple obstacles
-      handleObstaclesCmd();
-      break;
-    case NEXT_OBSTACLE_CMD:
-      //Receive next obstacle
-      handleNextObstacle();
       break;
     case MOTOR_STARTING_CMD:
       resetStats();
