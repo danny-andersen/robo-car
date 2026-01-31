@@ -110,13 +110,6 @@ void loop() {
     Serial.println();
   }
 
-  // Send status to PI
-  int8_t piOnBus = sendSystemStatus();
-  if (piOnBus) {
-    Serial.print("Failed to send system status to PI: ");
-    Serial.println(piOnBus);
-  }
-
   piOnBus = getPiStatusCmd();
   if (piOnBus) {
     //Failed to get a response
@@ -161,8 +154,14 @@ void loop() {
     if (checkRearRightProximity(systemStatus.proximityState)) Serial.print("RIGHT ");
     if (checkRearLeftProximity(systemStatus.proximityState)) Serial.print("LEFT ");
   }
-  systemStatus.proximityState |= piStatus.lidarStatus;
   Serial.println();
+
+  // Send combined status to PI
+  int8_t piOnBus = sendSystemStatus();
+  if (piOnBus) {
+    Serial.print("Failed to send system status to PI: ");
+    Serial.println(piOnBus);
+  }
 
   // sweep(distances);
   // // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front

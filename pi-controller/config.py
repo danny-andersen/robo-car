@@ -27,15 +27,27 @@ FRONT_LEFT_PROX_SET = 0x01
 FRONT_RIGHT_PROX_SET = 0x02
 REAR_LEFT_PROX_SET = 0x04
 REAR_RIGHT_PROX_SET = 0x08
+TOP_FRONT_LEFT_PROX_SET = 0x10
+TOP_FRONT_RIGHT_PROX_SET = 0x20
+REAR_REAR_PROX_SET = 0x40 # Extra bit for rear-most proximity (lidar only)
+FRONT_FRONT_PROX_SET = 0x80 # Extra bit for rear-most proximity (lidar only)
 
 #Proximity thresholds (mm)
 PROXIMITY_THRESHOLD_FRONT_MM = 200 #Anything closer than this is considered an obstacle directly in front
-PROXIMITY_ANGLE_FRONT_LEFT = 330 #Angle (degrees) to left of front for proximity checking
-PROXIMITY_ANGLE_FRONT_RIGHT = 30 #Angle (degrees) to right of front for proximity checking
+PROXIMITY_THRESHOLD_FRONT_SIDE_START_MM = 160 #Anything closer than this is considered an obstacle directly in front
+PROXIMITY_THRESHOLD_FRONT_SIDE_END_MM = 180 #Anything closer than this is considered an obstacle directly in front
+PROXIMITY_ANGLE_FRONT_LEFT_START = 320 #Angle (degrees) to left of front for proximity checking
+PROXIMITY_ANGLE_FRONT_LEFT_END = 340 #Angle (degrees) to left of front for proximity checking
+PROXIMITY_ANGLE_FRONT_RIGHT_START = 20 #Angle (degrees) to right of front for proximity checking
+PROXIMITY_ANGLE_FRONT_RIGHT_END = 40 #Angle (degrees) to right of front for proximity checking
+PROXIMITY_FRONT_SIDE_SCALE = (PROXIMITY_THRESHOLD_FRONT_SIDE_END_MM - PROXIMITY_THRESHOLD_FRONT_SIDE_START_MM) / (PROXIMITY_ANGLE_FRONT_RIGHT_END - PROXIMITY_ANGLE_FRONT_RIGHT_START)
 
 PROXIMITY_THRESHOLD_REAR_MM = 60 #Anything closer than this is considered an obstacle directly on the rear
-PROXIMITY_ANGLE_REAR_LEFT = 260 #Angle (degrees) limit on left side
-PROXIMITY_ANGLE_REAR_RIGHT = 100 #Angle (degrees) on right side 
+PROXIMITY_THRESHOLD_REAR_SIDE_MM = 85 #Anything closer than this is considered an obstacle directly on the rear side
+PROXIMITY_ANGLE_REAR_LEFT_START = 230 #Angle (degrees) limit on left side
+PROXIMITY_ANGLE_REAR_LEFT_END = 260 #Angle (degrees) limit on left side
+PROXIMITY_ANGLE_REAR_RIGHT_START = 100 #Angle (degrees) on right side 
+PROXIMITY_ANGLE_REAR_RIGHT_END = 130 #Angle (degrees) on right side 
 
 
 # -----------------------------
@@ -109,6 +121,10 @@ def printableProximity(proxStatus):
         parts.append("Rear Left")
     if proxStatus & REAR_RIGHT_PROX_SET:
         parts.append("Rear Right")
+    if proxStatus & FRONT_FRONT_PROX_SET:
+        parts.append("Front Front")
+    if proxStatus & REAR_REAR_PROX_SET:
+        parts.append("Rear Rear")
     return ", ".join(parts) if parts else "None" 
          
 smoothedScan = [0] * 360

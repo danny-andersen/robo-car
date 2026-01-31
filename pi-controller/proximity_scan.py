@@ -28,18 +28,26 @@ def processProximityScan(scan, robotState):
         #     threshold = config.PROXIMITY_THRESHOLD_ROTATING_MM
         # else:
         #     # Normal driving
-        if ((angle <= config.PROXIMITY_ANGLE_REAR_LEFT) and (angle >= 180)): 
-            threshold = config.PROXIMITY_THRESHOLD_REAR_MM /math.cos(math.radians(angle - 180))
+        if ((angle <= config.PROXIMITY_ANGLE_REAR_LEFT_START) and (angle >= config.PROXIMITY_ANGLE_REAR_LEFT_END)): 
+            threshold = config.PROXIMITY_THRESHOLD_REAR_SIDE_MM
             bitSet = config.REAR_LEFT_PROX_SET
-        elif (angle >= config.PROXIMITY_ANGLE_REAR_RIGHT) and (angle < 180):
-            threshold = config.PROXIMITY_THRESHOLD_REAR_MM/math.cos(math.radians(180 - angle))
+        elif (angle >= config.PROXIMITY_ANGLE_REAR_RIGHT_START) and (angle <= config.PROXIMITY_ANGLE_REAR_RIGHT_END):
+            threshold = config.PROXIMITY_THRESHOLD_REAR_SIDE_MM
             bitSet = config.REAR_RIGHT_PROX_SET
-        elif ((angle > 0) and (angle < config.PROXIMITY_ANGLE_FRONT_RIGHT)):
-            threshold = config.PROXIMITY_THRESHOLD_FRONT_MM/math.cos(math.radians(angle))
+        elif (angle > config.PROXIMITY_ANGLE_REAR_RIGHT_END) and (angle < config.PROXIMITY_ANGLE_REAR_LEFT_START):
+            threshold = config.PROXIMITY_THRESHOLD_REAR_MM/math.cos(math.radians(abs(180 - angle)))
+            bitSet = config.REAR_REAR_PROX_SET
+        elif ((angle >= config.PROXIMITY_ANGLE_FRONT_RIGHT_START) and (angle <= config.PROXIMITY_ANGLE_FRONT_RIGHT_END)):
+            threshold = config.PROXIMITY_THRESHOLD_FRONT_SIDE_START_MM + \
+                        ((angle - config.PROXIMITY_ANGLE_FRONT_RIGHT_START)*config.PROXIMITY_FRONT_SIDE_SCALE)
             bitSet = config.FRONT_RIGHT_PROX_SET
-        elif ((angle >= config.PROXIMITY_ANGLE_FRONT_LEFT) and (angle <= 359)):
-            threshold = config.PROXIMITY_THRESHOLD_FRONT_MM/math.cos(math.radians(359 - angle))
+        elif ((angle >= config.PROXIMITY_ANGLE_FRONT_LEFT_START) and (angle <= config.PROXIMITY_ANGLE_FRONT_LEFT_END)):
+            threshold = config.PROXIMITY_THRESHOLD_FRONT_SIDE_START_MM + \
+                        ((angle - config.PROXIMITY_ANGLE_FRONT_LEFT_START)*config.PROXIMITY_FRONT_SIDE_SCALE)
             bitSet = config.FRONT_LEFT_PROX_SET
+        elif ((angle >= config.PROXIMITY_ANGLE_FRONT_LEFT_END) or (angle <= config.PROXIMITY_ANGLE_FRONT_RIGHT_START)):
+            threshold = config.PROXIMITY_THRESHOLD_FRONT_MM * math.cos(math.radians(angle) if angle < 180 else (360 - angle))
+            bitSet = config.FRONT_FRONT_PROX_SET
 
         # Require at least 3 consecutive angles below threshold
         if (distance <= threshold and
@@ -49,23 +57,6 @@ def processProximityScan(scan, robotState):
             config.piStatus["lidarProximity"] |= bitSet 
             
             
-            # if ((angle >= config.PROXIMITY_ANGLE_FRONT_LEFT) and (angle <= 359)):
-            #     # Object too close in front left
-            #     config.piStatus["lidarProximity"] |= config.FRONT_LEFT_PROX_SET
-            #     # print("LIDAR Proximity Front Left:", distance, "mm at angle", angle)
-            # elif (angle <= config.PROXIMITY_ANGLE_FRONT_RIGHT):
-            #     # Object too close in front right
-            #     config.piStatus["lidarProximity"] |= config.FRONT_RIGHT_PROX_SET
-            #     # print("LIDAR Proximity Front Right:", distance, "mm at angle", angle)
-            # elif (angle > config.PROXIMITY_ANGLE_FRONT_RIGHT) and (angle < 180):
-            #     # Right rear side
-            #     config.piStatus["lidarProximity"] |= config.REAR_RIGHT_PROX_SET
-            #     # print("LIDAR Proximity Rear Right Side:", distance, "mm at angle", angle)
-            # else:
-            #     # Left rear side
-            #     config.piStatus["lidarProximity"] |= config.REAR_LEFT_PROX_SET
-            #     # print("LIDAR Proximity Rear Left Side:", distance, "mm at angle", angle)
-        
     if (config.piStatus["lidarProximity"] != 0):
         print(f"LIDAR Proximity Status: {hex(config.piStatus["lidarProximity"])} {config.printableProximity(config.piStatus["lidarProximity"])}")
 

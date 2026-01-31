@@ -45,9 +45,9 @@ int8_t piOnBus = 1;    //0 means up and on the bus
 int8_t nanoOnBus = 1;  //0 means up and on the bus - anything else is an error
 
 
-bool waitForResponse() {
+bool waitForResponse(uint8_t noOfBytes) {
   unsigned long waitingTime = 0;
-  while (Wire.available() == 0 && waitingTime < 500) {
+  while (Wire.available() < noOfBytes && waitingTime < 500) {
     //Wait for response;
     delay(10);
     waitingTime += 10;
@@ -69,9 +69,9 @@ void flush() {
 }
 
 int8_t rxNanoStatus() {
-  Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(rdstatus));
-  if (waitForResponse()) {
-    Wire.readBytes((byte *)&rdstatus, sizeof(rdstatus));
+  Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(StatusStruct));
+  if (waitForResponse(sizeof(StatusStruct))) {
+    Wire.readBytes((byte *)&rdstatus, sizeof(StatusStruct));
     uint8_t calc = crc8((uint8_t *)&rdstatus, sizeof(StatusStruct) - 1);
     if (calc != rdstatus.checksum) {
       // BAD PACKET
@@ -144,11 +144,11 @@ int8_t getNanoStatusCmd() {
 }
 
 int8_t readPiStatus() {
-  Wire.requestFrom(PI_ADDR, sizeof(rdpiStatus));
-  if (waitForResponse()) {
+  Wire.requestFrom(PI_ADDR, sizeof(PiStatusStruct));
+  if (waitForResponse(sizeof(PiStatusStruct))) {
     //Should get pi status back acknowledging receipt
-    Wire.readBytes((byte *)&rdpiStatus, sizeof(rdpiStatus));
-    uint8_t calc = crc8((uint8_t *)&rdpiStatus, sizeof(rdpiStatus) - 1);
+    Wire.readBytes((byte *)&rdpiStatus, sizeof(PiStatusStruct));
+    uint8_t calc = crc8((uint8_t *)&rdpiStatus, sizeof(PiStatusStruct) - 1);
     if (calc == rdpiStatus.checksum && rdpiStatus.ready == 1) {
       piStatus = rdpiStatus;
       piOnBus = 0;  //Correct ack
@@ -200,7 +200,7 @@ bool checkFrontLeftProximity(uint8_t status) {
 }
 
 bool checkFrontProximity(uint8_t status) {
-  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
+  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
 }
 
 bool checkRearRightProximity(uint8_t status) {
@@ -213,7 +213,7 @@ bool checkRearLeftProximity(uint8_t status) {
 }
 
 bool checkRearProximity(uint8_t status) {
-  return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET);
+  return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET) || (status & REAR_REAR_PROX_SET);
 }
 
 int8_t sendSystemStatus() {
