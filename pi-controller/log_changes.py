@@ -24,14 +24,14 @@ def _flatten_state():
                 flat[f"systemStatus.{k}"] = config.ROBOT_STATE_NAMES[v]
             else:
                 flat[f"systemStatus.{k}"] = f"UNKNOWN({v})"
-        elif "roximity" in k: 
+        elif k == "proximitySensors": 
             flat[f"systemStatus.{k}"] = config.printableProximity(v)
         else:
             flat[f"systemStatus.{k}"] = v
         
     # piStatus
     for k, v in config.piStatus.items():
-        if "roximity" in k: 
+        if k == "lidarProximity": 
             flat[f"systemStatus.{k}"] = config.printableProximity(v)
         else:
             flat[f"piStatus.{k}"] = v
@@ -59,12 +59,12 @@ def _flatten_state_no_obstacles():
                 flat[f"systemStatus.{k}"] = config.ROBOT_STATE_NAMES[v]
             else:
                 flat[f"systemStatus.{k}"] = f"UNKNOWN({v})"
-        elif "roximity" in k: 
+        elif k == "proximitySensors": 
             flat[f"systemStatus.{k}"] = config.printableProximity(v)
         else:
             flat[f"systemStatus.{k}"] = v
     for k, v in config.piStatus.items():
-        if "roximity" in k: 
+        if k == "lidarProximity": 
             flat[f"systemStatus.{k}"] = config.printableProximity(v)
         else:
             flat[f"piStatus.{k}"] = v
