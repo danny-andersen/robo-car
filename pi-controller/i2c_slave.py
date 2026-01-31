@@ -5,6 +5,12 @@ import time
 import config
 import log_changes
 
+import queue
+import time
+
+# Thread-safe FIFO queue
+status_fifo = queue.Queue(maxsize=200)   # adjust size as needed
+
 # GPIO.setmode(GPIO.BCM)
 
 # -----------------------------
@@ -103,8 +109,26 @@ def on_receive(cmd, data):
         print("Unknown command received:", cmd)
         pass  # Unknown command
 
+   
+def msg_process_thread():
 
-def writeStatusToFIFO():
+   while True:
+       data = status_fifo.get()   # blocks until data available
+       cmd  = data[0]
+       on_receive(cmd, data)
+       if cmd == config.SEND_SYSTEM_STATUS_CMD:
+           log_changes.record_status_change()
+        # if (cmd == SEND_SYSTEM_STATUS_CMD):
+        #     print(systemStatus)
+        # elif (cmd == NEXT_OBSTACLE_CMD):
+        #     print(obstacles[numObstaclesRx - 1])
+        # elif (cmd == SENDING_OBSTACLES_CMD):
+        #     print(obstaclesCmd)
+        # print(f"Req status command received {cmd}")
+
+
+
+def writeStatusToI2CBuffer():
     response = config.PiStatusStruct.pack(config.piStatus["systemReady"], 
                                           config.piStatus["lidarProximity"], 
                                           config.piStatus["directionToDrive"])
@@ -116,19 +140,15 @@ def i2cEvent(id, tick):
    status, bytesRead, data = config.pi.bsc_i2c(config.I2C_ADDR)
 #    print ("I2C Event: status={}, bytesRead={}, data={}".format(status, bytesRead, data))
    if bytesRead:
-    cmd = data[0]
     # Always write status to FIFO first so master gets it as ack on next message
-    writeStatusToFIFO()
-    on_receive(cmd, data)
-    if cmd == config.SEND_SYSTEM_STATUS_CMD or cmd == config.REQ_STATUS_CMD:
-        log_changes.record_status_change()
-    # if (cmd == SEND_SYSTEM_STATUS_CMD):
-    #     print(systemStatus)
-    # elif (cmd == NEXT_OBSTACLE_CMD):
-    #     print(obstacles[numObstaclesRx - 1])
-    # elif (cmd == SENDING_OBSTACLES_CMD):
-    #     print(obstaclesCmd)
-    # print(f"Req status command received {cmd}")
+    writeStatusToI2CBuffer()
+    # Push into FIFO without blocking forever
+    try:
+        status_fifo.put_nowait(data)
+    except queue.Full: 
+        print("WARNING: FIFO full, dropping oldest entry") 
+        status_fifo.get_nowait()
+        status_fifo.put_nowait(data)
 
 def i2c_init():
     # -----------------------------
@@ -143,7 +163,7 @@ def i2c_init():
     config.pi.bsc_i2c(config.I2C_ADDR)
     print(f"I2C slave active at address {config.I2C_ADDR}")
     config.piStatus["systemReady"] = 1
-    writeStatusToFIFO()
+    writeStatusToI2CBuffer()
     return eventHandle
 
 # -----------------------------

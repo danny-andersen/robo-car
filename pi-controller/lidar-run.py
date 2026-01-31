@@ -1,10 +1,11 @@
 import time
 import math
+import threading
 
 import numpy as np
 
 import config
-from i2c_slave import i2c_init
+from i2c_slave import i2c_init, msg_process_thread
 from ld19_reader import LD19Reader
 from icp_slam_scan_to_map import ICP_SLAM
 from proximity_scan import processProximityScan
@@ -42,10 +43,12 @@ if __name__ == '__main__':
     slam = ICP_SLAM(map_size_m=16.0, resolution=0.02)
     reader = LD19Reader(config.SERIAL_PORT)
     reader.start()
+
+    processing_thread = threading.Thread( target=msg_process_thread, daemon=True ) 
+    processing_thread.start()    
     
     eventHandler = i2c_init()
     
-   
     interval = 0.050 # 50 ms 
     next_run = time.perf_counter()
     try:
