@@ -28,7 +28,7 @@ def processProximityScan(scan, robotState):
         #     threshold = config.PROXIMITY_THRESHOLD_ROTATING_MM
         # else:
         #     # Normal driving
-        if ((angle <= config.PROXIMITY_ANGLE_REAR_LEFT_START) and (angle >= config.PROXIMITY_ANGLE_REAR_LEFT_END)): 
+        if ((angle >= config.PROXIMITY_ANGLE_REAR_LEFT_START) and (angle <= config.PROXIMITY_ANGLE_REAR_LEFT_END)): 
             threshold = config.PROXIMITY_THRESHOLD_REAR_SIDE_MM
             bitSet = config.REAR_LEFT_PROX_SET
         elif (angle >= config.PROXIMITY_ANGLE_REAR_RIGHT_START) and (angle <= config.PROXIMITY_ANGLE_REAR_RIGHT_END):

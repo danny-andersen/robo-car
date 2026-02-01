@@ -1,9 +1,11 @@
 import struct
 
+
 # -----------------------------
 # I2C slave address
 # -----------------------------
 I2C_ADDR = 0x09
+
 
 # -----------------------------
 # Commands
@@ -17,7 +19,8 @@ MOTOR_STOPPING_CMD = 0x06
 REQ_STATUS_CMD = 0x07
 SEND_SYSTEM_STATUS_CMD = 0x08
 
-#Proximity states (bitmask)
+
+# Proximity states (bitmask)
 LIDAR_PROXIMITY_NONE = 0x00
 FRONT_LEFT_PROX_BIT = 0
 FRONT_RIGHT_PROX_BIT = 1
@@ -29,38 +32,46 @@ REAR_LEFT_PROX_SET = 0x04
 REAR_RIGHT_PROX_SET = 0x08
 TOP_FRONT_LEFT_PROX_SET = 0x10
 TOP_FRONT_RIGHT_PROX_SET = 0x20
-REAR_REAR_PROX_SET = 0x40 # Extra bit for rear-most proximity (lidar only)
-FRONT_FRONT_PROX_SET = 0x80 # Extra bit for rear-most proximity (lidar only)
+REAR_REAR_PROX_SET = 0x40  # Extra bit for rear-most proximity (lidar only)
+FRONT_FRONT_PROX_SET = 0x80  # Extra bit for rear-most proximity (lidar only)
 
-#Proximity thresholds (mm)
-PROXIMITY_THRESHOLD_FRONT_MM = 200 #Anything closer than this is considered an obstacle directly in front
-PROXIMITY_THRESHOLD_FRONT_SIDE_START_MM = 160 #Anything closer than this is considered an obstacle directly in front
-PROXIMITY_THRESHOLD_FRONT_SIDE_END_MM = 180 #Anything closer than this is considered an obstacle directly in front
-PROXIMITY_ANGLE_FRONT_LEFT_START = 320 #Angle (degrees) to left of front for proximity checking
-PROXIMITY_ANGLE_FRONT_LEFT_END = 340 #Angle (degrees) to left of front for proximity checking
-PROXIMITY_ANGLE_FRONT_RIGHT_START = 20 #Angle (degrees) to right of front for proximity checking
-PROXIMITY_ANGLE_FRONT_RIGHT_END = 40 #Angle (degrees) to right of front for proximity checking
-PROXIMITY_FRONT_SIDE_SCALE = (PROXIMITY_THRESHOLD_FRONT_SIDE_END_MM - PROXIMITY_THRESHOLD_FRONT_SIDE_START_MM) / (PROXIMITY_ANGLE_FRONT_RIGHT_END - PROXIMITY_ANGLE_FRONT_RIGHT_START)
 
-PROXIMITY_THRESHOLD_REAR_MM = 60 #Anything closer than this is considered an obstacle directly on the rear
-PROXIMITY_THRESHOLD_REAR_SIDE_MM = 85 #Anything closer than this is considered an obstacle directly on the rear side
-PROXIMITY_ANGLE_REAR_LEFT_START = 230 #Angle (degrees) limit on left side
-PROXIMITY_ANGLE_REAR_LEFT_END = 260 #Angle (degrees) limit on left side
-PROXIMITY_ANGLE_REAR_RIGHT_START = 100 #Angle (degrees) on right side 
-PROXIMITY_ANGLE_REAR_RIGHT_END = 130 #Angle (degrees) on right side 
+# Proximity thresholds (mm)
+PROXIMITY_THRESHOLD_FRONT_MM = 200  # Anything closer than this is an obstacle directly in front
+PROXIMITY_THRESHOLD_FRONT_SIDE_START_MM = 160
+PROXIMITY_THRESHOLD_FRONT_SIDE_END_MM = 180
+PROXIMITY_ANGLE_FRONT_LEFT_START = 320  # Angle (degrees) to left of front for proximity checking
+PROXIMITY_ANGLE_FRONT_LEFT_END = 340
+PROXIMITY_ANGLE_FRONT_RIGHT_START = 20  # Angle (degrees) to right of front for proximity checking
+PROXIMITY_ANGLE_FRONT_RIGHT_END = 40
+PROXIMITY_FRONT_SIDE_SCALE = (
+    (PROXIMITY_THRESHOLD_FRONT_SIDE_END_MM - PROXIMITY_THRESHOLD_FRONT_SIDE_START_MM)
+    / (PROXIMITY_ANGLE_FRONT_RIGHT_END - PROXIMITY_ANGLE_FRONT_RIGHT_START)
+)
+
+PROXIMITY_THRESHOLD_REAR_MM = 60  # Anything closer than this is an obstacle directly on the rear
+PROXIMITY_THRESHOLD_REAR_SIDE_MM = 85  # Anything closer than this is an obstacle on the rear side
+PROXIMITY_ANGLE_REAR_LEFT_START = 230  # Angle (degrees) limit on left side
+PROXIMITY_ANGLE_REAR_LEFT_END = 260
+PROXIMITY_ANGLE_REAR_RIGHT_START = 100  # Angle (degrees) on right side
+PROXIMITY_ANGLE_REAR_RIGHT_END = 130
 
 
 # -----------------------------
 # Struct definitions
 # -----------------------------
-ObstacleData_struct = struct.Struct("<HHHB") # relDir, width, avgDistance, crc
-ObstaclesCmd_struct = struct.Struct("<hBB") # currentCompassDirn, numToSend, crc
-SystemStatusStruct = struct.Struct("<hhHBBhbbBBBBB") # humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, CRC
-PiStatusStruct = struct.Struct("<BBH") # systemReady, lidarProximity, directionToDrive
+ObstacleData_struct = struct.Struct("<HHHB")  # relDir, width, avgDistance, crc
+ObstaclesCmd_struct = struct.Struct("<hBB")  # currentCompassDirn, numToSend, crc
+SystemStatusStruct = struct.Struct(
+    "<hhHBBhbbBBBBB"
+)  # humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, CRC
+PiStatusStruct = struct.Struct("<BBH")  # systemReady, lidarProximity, directionToDrive
+
 
 MAX_OBS = 20
 
 pi = None  # To be initialized in i2c_init() in i2c_slave.py
+
 
 # -----------------------------
 # State variables
@@ -71,13 +82,11 @@ numObstaclesRx = 0
 obstaclesCmd = {
     "currentCompassDirn": 0,
     "numOfObstaclesToSend": 0,
-
 }
 
 obstacles = [
-    {"bearing": 0, "width": 0, "avgDistance": 0, }
-    for _ in range(MAX_OBS)
-    ]
+    {"bearing": 0, "width": 0, "avgDistance": 0} for _ in range(MAX_OBS)
+]
 
 
 systemStatus = {
@@ -97,21 +106,38 @@ systemStatus = {
 
 piStatus = {
     "systemReady": 0,
-    "lidarProximity": 0, # LIDAR proximity state: Bits are set as per LIDAR_PROXIMITY_xxx constants, which match proximity sensor bits
-    "directionToDrive": 1000, # Value indicating no direction set
+    "lidarProximity": 0,  # LIDAR proximity state: bits are set as per LIDAR_PROXIMITY_xxx constants
+    "directionToDrive": 1000,  # Value indicating no direction set
 }
 
-ROBOT_STATE_NAMES = [ "INIT", "INIT_FAILED", "DRIVE", "ROTATING", "SWEEP", "UTURN_SWEEP", "BACK_OUT", "OFF_GROUND", ]
+ROBOT_STATE_NAMES = [
+    "INIT",
+    "INIT_FAILED",
+    "DRIVE",
+    "ROTATING",
+    "SWEEP",
+    "UTURN_SWEEP",
+    "BACK_OUT",
+    "OFF_GROUND",
+    "ROTATING_LEFT",
+    "ROTATING_RIGHT",
+    "ROTATING_LEFT_BLOCKED_RIGHT",  # Tried rotating right but blocked, so going left
+    "ROTATING_RIGHT_BLOCKED_LEFT",  # Tried rotating left but blocked, so going right
+    "ROTATING_FRONT_BLOCKED_BACKING_OUT",
+    "ROTATING_REAR_BLOCKED_GO_FORWARD",
+]
 
-#LIDAR
-SERIAL_PORT = "/dev/ttyS0"   # GPIO serial port on Raspberry Pi
+
+# LIDAR
+SERIAL_PORT = "/dev/ttyS0"  # GPIO serial port on Raspberry Pi
 
 
 # SLAM/map parameters
-MAP_SIZE_PIXELS = 800          # Occupancy grid width/height
-MAP_SIZE_METERS = 16.0         # Map width/height in meters
+MAP_SIZE_PIXELS = 800  # Occupancy grid width/height
+MAP_SIZE_METERS = 16.0  # Map width/height in meters
 
-def printableProximity(proxStatus):    
+
+def printableProximity(proxStatus):
     parts = []
     if proxStatus & FRONT_LEFT_PROX_SET:
         parts.append("Front Left")
@@ -125,6 +151,7 @@ def printableProximity(proxStatus):
         parts.append("Front Front")
     if proxStatus & REAR_REAR_PROX_SET:
         parts.append("Rear Rear")
-    return ", ".join(parts) if parts else "None" 
-         
+    return ", ".join(parts) if parts else "None"
+
+
 smoothedScan = [0] * 360
