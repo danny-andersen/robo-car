@@ -14,6 +14,12 @@ enum Robot_State {
   UTURN_SWEEP,
   BACK_OUT,
   OFF_GROUND,
+  ROTATING_LEFT,
+  ROTATING_RIGHT,
+  ROTATING_LEFT_BLOCKED_RIGHT, //Tried rotating right but blocked, so going left
+  ROTATING_RIGHT_BLOCKED_LEFT, //Tried rotating left but blocked, so going right
+  ROTATING_FRONT_BLOCKED_BACKING_OUT, //Front obstruction but clear at back, so backup a bit and then rotate (if clear)
+  ROTATING_REAR_BLOCKED_GO_FORWARD, //Rear obstruction but clear at front, so go forward a bit and then rotate (if clear)
 };
 
 enum Drive_State {

@@ -23,6 +23,8 @@
 #define REAR_RIGHT_PROX_SET 0x08
 #define TOP_FRONT_LEFT_PROX_SET 0x10
 #define TOP_FRONT_RIGHT_PROX_SET 0x20
+#define REAR_REAR_PROX_SET 0x40 // Extra bit for rear-most proximity (lidar only)
+#define FRONT_FRONT_PROX_SET 0x80 // Extra bit for rear-most proximity (lidar only)
 
 
 #define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20

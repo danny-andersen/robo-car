@@ -52,7 +52,7 @@ bool waitForResponse(uint8_t noOfBytes) {
     delay(10);
     waitingTime += 10;
   }
-  return Wire.available() != 0;
+  return Wire.available() >= noOfBytes;
 }
 
 void flush() {
@@ -203,10 +203,14 @@ bool checkFrontProximity(uint8_t status) {
   return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
 }
 
+bool checkDirectFrontProximity(uint8_t status) {
+  //When checking directly in the front, ignore the top left and right, as these are at a more obtuse angle, to detect issues with rotating, rather than driving straight ahead
+  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
+
+}
 bool checkRearRightProximity(uint8_t status) {
   return status & REAR_RIGHT_PROX_SET;
 }
-
 
 bool checkRearLeftProximity(uint8_t status) {
   return status & REAR_LEFT_PROX_SET;
@@ -214,6 +218,10 @@ bool checkRearLeftProximity(uint8_t status) {
 
 bool checkRearProximity(uint8_t status) {
   return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET) || (status & REAR_REAR_PROX_SET);
+}
+
+bool checkDirectRearOnly(uint8_t status) {
+  return (status & REAR_REAR_PROX_SET);
 }
 
 int8_t sendSystemStatus() {

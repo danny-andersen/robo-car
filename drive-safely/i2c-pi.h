@@ -45,9 +45,9 @@ int8_t piOnBus = 1;    //0 means up and on the bus
 int8_t nanoOnBus = 1;  //0 means up and on the bus - anything else is an error
 
 
-bool waitForResponse() {
+bool waitForResponse(uint8_t noOfBytes) {
   unsigned long waitingTime = 0;
-  while (Wire.available() == 0 && waitingTime < 500) {
+  while (Wire.available() < noOfBytes && waitingTime < 500) {
     //Wait for response;
     delay(10);
     waitingTime += 10;
@@ -59,19 +59,19 @@ void flush() {
   //Read any bytes still in the buffer
   delay(10);
   if (Wire.available() > 0) {
-    // if (Serial) {
-    //   Serial.print("Still have bytes to read?? : ");
-    //   Serial.println(Wire.available());
-    // }
+    if (Serial) {
+      Serial.print("Still have bytes to read?? : ");
+      Serial.println(Wire.available());
+    }
     while (Wire.available() > 0) Serial.print(Wire.read());
     Serial.println();
   }
 }
 
 int8_t rxNanoStatus() {
-  Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(rdstatus));
-  if (waitForResponse()) {
-    Wire.readBytes((byte *)&rdstatus, sizeof(rdstatus));
+  Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(StatusStruct));
+  if (waitForResponse(sizeof(StatusStruct))) {
+    Wire.readBytes((byte *)&rdstatus, sizeof(StatusStruct));
     uint8_t calc = crc8((uint8_t *)&rdstatus, sizeof(StatusStruct) - 1);
     if (calc != rdstatus.checksum) {
       // BAD PACKET
@@ -144,21 +144,21 @@ int8_t getNanoStatusCmd() {
 }
 
 int8_t readPiStatus() {
-  Wire.requestFrom(PI_ADDR, sizeof(rdpiStatus));
-  if (waitForResponse()) {
+  Wire.requestFrom(PI_ADDR, sizeof(PiStatusStruct));
+  if (waitForResponse(sizeof(PiStatusStruct))) {
     //Should get pi status back acknowledging receipt
-    Wire.readBytes((byte *)&rdpiStatus, sizeof(rdpiStatus));
-    uint8_t calc = crc8((uint8_t *)&rdpiStatus, sizeof(rdpiStatus) - 1);
+    Wire.readBytes((byte *)&rdpiStatus, sizeof(PiStatusStruct));
+    uint8_t calc = crc8((uint8_t *)&rdpiStatus, sizeof(PiStatusStruct) - 1);
     if (calc == rdpiStatus.checksum && rdpiStatus.ready == 1) {
       piStatus = rdpiStatus;
       piOnBus = 0;  //Correct ack
     } else {
-      // if (Serial && calc != rdpiStatus.checksum) {
-      //   Serial.print("Read PI: Incorrect crc rx: ");
-      //   Serial.print(rdpiStatus.checksum);
-      //   Serial.print(" exp: ");
-      //   Serial.println(calc);
-      // }
+      if (Serial && calc != rdpiStatus.checksum) {
+        Serial.print("Read PI: Incorrect crc rx: ");
+        Serial.print(rdpiStatus.checksum);
+        Serial.print(" exp: ");
+        Serial.println(calc);
+      }
       piOnBus = 1;  //Incorrect status read
     }
   }
@@ -200,20 +200,28 @@ bool checkFrontLeftProximity(uint8_t status) {
 }
 
 bool checkFrontProximity(uint8_t status) {
-  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
+  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
 }
 
+bool checkDirectFrontProximity(uint8_t status) {
+  //When checking directly in the front, ignore the top left and right, as these are at a more obtuse angle, to detect issues with rotating, rather than driving straight ahead
+  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
+
+}
 bool checkRearRightProximity(uint8_t status) {
   return status & REAR_RIGHT_PROX_SET;
 }
-
 
 bool checkRearLeftProximity(uint8_t status) {
   return status & REAR_LEFT_PROX_SET;
 }
 
 bool checkRearProximity(uint8_t status) {
-  return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET);
+  return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET) || (status & REAR_REAR_PROX_SET);
+}
+
+bool checkDirectRearOnly(uint8_t status) {
+  return (status & REAR_REAR_PROX_SET);
 }
 
 int8_t sendSystemStatus() {

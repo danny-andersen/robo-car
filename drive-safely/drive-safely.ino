@@ -16,7 +16,6 @@ unsigned long driveTimer = 0;
 int16_t directionToDrive = 0;
 float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
 Drive_State currentDriveState = STOPPED;
-Robot_State lastRobotState = INIT;
 
 uint16_t furthestDistance = 0;
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
