@@ -1,7 +1,7 @@
 //Functions to control drive motors to perform movement of a wheeled device.
 
 #define ROTATE_CHECK_INTERVAL 100
-#define MAX_ROTATE_TIME 3000
+#define MAX_ROTATE_TIME 5000
 
 Robot_State lastRobotState = INIT;
 
