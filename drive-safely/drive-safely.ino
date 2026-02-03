@@ -46,6 +46,7 @@ void setup() {
   groundTrackingInit();
   // Start I²C bus
   Wire.begin();
+  Wire.setWireTimeout(10000); //10ms
   statusInit();
   showBatteryStatus();
   delay(3000);  //Let everything settle before initialising accelerometer
@@ -211,8 +212,8 @@ void driveAndScan() {
   uint16_t distanceClear = clearDistanceAhead();
   //Check speed, distance and for any immediate obstructions
   getCombinedProximity();
-  // bool wheelTrapped = ((periStatus.currentLeftSpeed == 0 || periStatus.currentRightSpeed == 0) && periStatus.distanceTravelled > 10);
-  bool wheelTrapped = false;
+  bool wheelTrapped = ((systemStatus.leftWheelSpeed == 0 || systemStatus.rightWheelSpeed == 0) && systemStatus.distanceTravelled > 10);
+  // bool wheelTrapped = false;
   // bool rolled = rollingOrPitching();
   bool rolled = false;
   bool hitSomething = checkFrontProximity(systemStatus.proximityState);
