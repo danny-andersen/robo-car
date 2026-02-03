@@ -34,3 +34,23 @@ enum SWEEP_STATUS {
   BLOCKED_AHEAD, //No clear route ahead but have room to turn around
   CANNOT_TURN,  //Need to reverse straight back and re-sweep
 };
+
+enum Error_State {
+  NO_ERROR, //0 = no current error
+  I2C_DATA_TOO_LONG, //Note: first 5 fields match I2C error nums
+  I2C_ADDR_NACK,
+  I2C_DATA_NACK,
+  I2C_ERROR,
+  I2C_TIMEOUT, //I2C bus timeout
+  I2C_PI_DATA_TOO_LONG, //Note: first 5 fields match I2C error nums
+  I2C_PI_ADDR_NACK,
+  I2C_PI_DATA_NACK,
+  I2C_PI_ERROR,
+  I2C_PI_TIMEOUT, //I2C bus timeout
+  I2C_RX_TIMEOUT,
+  I2C_PI_CRC_ERROR,
+  I2C_NANO_CRC_ERROR,
+  I2C_EXTRA_BYTES, //Received extra bytes when not expecting them (in flush())
+  I2C_PI_RETRIED,
+  I2C_NANO_RETRIED,
+};

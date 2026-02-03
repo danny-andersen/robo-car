@@ -50,7 +50,7 @@ PROXIMITY_FRONT_SIDE_SCALE = (
 )
 
 PROXIMITY_THRESHOLD_REAR_MM = 60  # Anything closer than this is an obstacle directly on the rear
-PROXIMITY_THRESHOLD_REAR_SIDE_MM = 85  # Anything closer than this is an obstacle on the rear side
+PROXIMITY_THRESHOLD_REAR_SIDE_MM = 95  # Anything closer than this is an obstacle on the rear side
 PROXIMITY_ANGLE_REAR_LEFT_START = 230  # Angle (degrees) limit on left side
 PROXIMITY_ANGLE_REAR_LEFT_END = 260
 PROXIMITY_ANGLE_REAR_RIGHT_START = 100  # Angle (degrees) on right side
@@ -60,11 +60,11 @@ PROXIMITY_ANGLE_REAR_RIGHT_END = 130
 # -----------------------------
 # Struct definitions
 # -----------------------------
-ObstacleData_struct = struct.Struct("<HHHB")  # relDir, width, avgDistance, crc
+ObstacleData_struct = struct.Struct("<bHHHB")  # obstacleNum, relDir, width, avgDistance, crc
 ObstaclesCmd_struct = struct.Struct("<hBB")  # currentCompassDirn, numToSend, crc
 SystemStatusStruct = struct.Struct(
-    "<hhHBBhbbBBBBB"
-)  # humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, CRC
+    "<hhHBBhbbBBBBBB"
+)  # humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, errorField, CRC
 PiStatusStruct = struct.Struct("<BBH")  # systemReady, lidarProximity, directionToDrive
 
 
@@ -102,6 +102,7 @@ systemStatus = {
     "leftWheelSpeed": 0,
     "averageSpeed": 0,
     "distanceTravelled": 0,
+    "errorField": 0,
 }
 
 piStatus = {
@@ -127,6 +128,24 @@ ROBOT_STATE_NAMES = [
     "ROTATING_REAR_BLOCKED_GO_FORWARD",
 ]
 
+ERROR_FIELD_NAMES = [
+  "NO_ERROR",
+  "I2C_DATA_TOO_LONG", #Note: first 5 fields match I2C error nums
+  "I2C_ADDR_NACK",
+  "I2C_DATA_NACK",
+  "I2C_ERROR",
+  "I2C_TIMEOUT", #I2C bus timeout
+  "I2C_PI_DATA_TOO_LONG", #Note: Following 5 fields match I2C error nums + 5
+  "I2C_PI_ADDR_NACK",
+  "I2C_PI_DATA_NACK",
+  "I2C_PI_ERROR",
+  "I2C_PI_TIMEOUT", #I2C bus timeout
+  "I2C_RX_TIMEOUT",
+  "I2C_PI_CRC_ERROR",
+  "I2C_NANO_CRC_ERROR",
+  "I2C_EXTRA_BYTES",
+  "I2C_PI_RETRIED",
+]
 
 # LIDAR
 SERIAL_PORT = "/dev/ttyS0"  # GPIO serial port on Raspberry Pi

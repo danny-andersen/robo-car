@@ -35,6 +35,7 @@ void setup() {
   statusInit();
   // Start I²C bus
   Wire.begin();
+  Wire.setWireTimeout();
 
   delay(2000);
   compassReady = compass_init();
@@ -47,16 +48,16 @@ void setup() {
 }
 
 void printNanoStatus() {
-    Serial.print("Nano Proximity: ");
-    Serial.print(nanoStatus.proximityState);
-    Serial.print(" left speed: ");
-    Serial.print(nanoStatus.currentLeftSpeed);
-    Serial.print(" right speed: ");
-    Serial.print(nanoStatus.currentRightSpeed);
-    Serial.print(" avg speed: ");
-    Serial.print(nanoStatus.averageSpeed);
-    Serial.print(" distance: ");
-    Serial.println(nanoStatus.distanceTravelled);
+  Serial.print("Nano Proximity: ");
+  Serial.print(nanoStatus.proximityState);
+  Serial.print(" left speed: ");
+  Serial.print(nanoStatus.currentLeftSpeed);
+  Serial.print(" right speed: ");
+  Serial.print(nanoStatus.currentRightSpeed);
+  Serial.print(" avg speed: ");
+  Serial.print(nanoStatus.averageSpeed);
+  Serial.print(" distance: ");
+  Serial.println(nanoStatus.distanceTravelled);
 }
 
 
@@ -87,7 +88,7 @@ void loop() {
   nanoOnBus = getNanoStatusCmd();
   if (nanoOnBus) {
     Serial.print("Failed to send to Nano: ");
-    Serial.println(nanoOnBus);
+    Serial.println(Serial.println(systemStatus.errorField));
   } else {
     printNanoStatus();
   }
@@ -95,7 +96,7 @@ void loop() {
   // nanoOnBus = getProximityState();
   if (nanoOnBus) {
     Serial.print("Failed to send to Nano: ");
-    Serial.println(nanoOnBus); 
+    Serial.println(nanoOnBus);
   } else if (systemStatus.proximityState > 0) {
     if (checkFrontProximity(systemStatus.proximityState)) {
       Serial.print("Nano FRONT ");
@@ -110,11 +111,19 @@ void loop() {
     Serial.println();
   }
 
+  sendStartMotorCmd();
+  Serial.print("Start motor: ");
+  printNanoStatus();
+  delay(1000);
+  sendStopMotorCmd();
+  Serial.print("Stop motor: ");
+  printNanoStatus();
+
   piOnBus = getPiStatusCmd();
   if (piOnBus) {
     //Failed to get a response
     Serial.print("Failed to talk to PI: ");
-    Serial.println(piOnBus);
+    Serial.println(systemStatus.errorField);
   } else {
     Serial.print("PI Ready: ");
     Serial.print(piStatus.ready);
@@ -163,40 +172,40 @@ void loop() {
     Serial.println(piOnBus);
   }
 
-  // sweep(distances);
-  // // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
-  // for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
-  //   arcs[i].avgDistance = 0;
-  // }
-  // for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
-  //   arcs[i].avgDistance = 0;
-  // }
-  // uint8_t numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
-  // // uint8_t numObjects = 5;
-  // for (int i = 0; i < numObjects; i++) {
-  //   Serial.print("Rel Dirn: ");
-  //   Serial.print(arcs[i].centreDirection);
-  //   Serial.print(" Width: ");
-  //   Serial.print(arcs[i].width);
-  //   Serial.print(" Distance: ");
-  //   Serial.println(arcs[i].avgDistance);
-  // }
-  // //Send Obstacles to PI
-  // int8_t obsStatus = sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
-  // if (!obsStatus) {
-  //   Serial.print("Sent all ");
-  //   Serial.print(numObjects);
-  //   Serial.println(" obstacles");
+  sweep(distances);
+  // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
+  for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
+    arcs[i].avgDistance = 0;
+  }
+  for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
+    arcs[i].avgDistance = 0;
+  }
+  uint8_t numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
+  // uint8_t numObjects = 5;
+  for (int i = 0; i < numObjects; i++) {
+    Serial.print("Rel Dirn: ");
+    Serial.print(arcs[i].centreDirection);
+    Serial.print(" Width: ");
+    Serial.print(arcs[i].width);
+    Serial.print(" Distance: ");
+    Serial.println(arcs[i].avgDistance);
+  }
+  //Send Obstacles to PI
+  int8_t obsStatus = sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
+  if (!obsStatus) {
+    Serial.print("Sent all ");
+    Serial.print(numObjects);
+    Serial.println(" obstacles");
 
-  // } else {
-  //   Serial.print("Failed to send all obstacles: ");
-  //   Serial.println(obsStatus);
-  // }
-  sendStartMotorCmd();
-  Serial.print("Start motor: ");
-  printNanoStatus();
-  delay(1000);
-  sendStopMotorCmd();
-  Serial.print("Stop motor: ");
-  printNanoStatus();
+  } else {
+    Serial.print("Failed to send all obstacles: ");
+    Serial.println(obsStatus);
+  }
+  piOnBus = sendSystemStatus();
+  if (piOnBus) {
+    Serial.print("Failed to send system status to PI after sweep: ");
+    Serial.println(piOnBus);
+  }
+
+  delay(30000);
 }

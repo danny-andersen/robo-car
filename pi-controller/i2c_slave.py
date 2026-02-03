@@ -41,7 +41,6 @@ def crc8(data: bytes) -> int:
     return crc
 
 def on_receive(cmd, data):
-    global numObstaclesRx, obstaclesCmd, obstacles, systemStatus
 
     if len(data) == 0:
         return
@@ -57,10 +56,10 @@ def on_receive(cmd, data):
             if (calcCrc == crc):
                 config.obstaclesCmd["currentCompassDirn"] = currentCompassDirn
                 config.obstaclesCmd["numOfObstaclesToSend"] = numToSend
-                numObstaclesRx = 0
-                obstacles = [{"bearing": 0, "width": 0, "avgDistance": 0} for _ in range(config.MAX_OBS)]
+                config.obstacles = [{"bearing": 0, "width": 0, "avgDistance": 0} for _ in range(config.MAX_OBS)]
             else:
                 print("ObstacleCmd CRC mismatch: calculated", calcCrc, "received", crc) 
+                # print(f"Payload data: {len(data)} bytes, {data} {currentCompassDirn}, {numToSend}")
 
 
     # -----------------------------
@@ -70,14 +69,14 @@ def on_receive(cmd, data):
         if len(data) >= 1 + config.ObstacleData_struct.size:
             payload = data[1:1 + config.ObstacleData_struct.size]
             calcCrc = crc8(data[1:config.ObstacleData_struct.size])
-            relDir, width, dist, crc = config.ObstacleData_struct.unpack(payload)
+            obstacleNum, relDir, width, dist, crc = config.ObstacleData_struct.unpack(payload)
             if (calcCrc == crc):
-                config.obstacles[numObstaclesRx]["bearing"] = relDir
-                config.obstacles[numObstaclesRx]["width"] = width
-                config.obstacles[numObstaclesRx]["avgDistance"] = dist
-                numObstaclesRx += 1
+                config.obstacles[obstacleNum]["bearing"] = relDir
+                config.obstacles[obstacleNum]["width"] = width
+                config.obstacles[obstacleNum]["avgDistance"] = dist
             else:
                 print("ObstacleData CRC mismatch: calculated", calcCrc, "received", crc)
+                # print(f"Payload data: {len(data)} bytes, {data} {relDir}, {width}, {dist}")
         
     elif cmd == config.SEND_SYSTEM_STATUS_CMD:
         if len(data) >= 1+config.SystemStatusStruct.size:
@@ -98,8 +97,10 @@ def on_receive(cmd, data):
                 config.systemStatus["leftWheelSpeed"],
                 config.systemStatus["averageSpeed"],
                 config.systemStatus["distanceTravelled"],
+                config.systemStatus["errorField"],
                 crc) = unpacked
-                # print("System status updated:", systemStatus)
+                # print("System status updated:", config.systemStatus)
+                # print(f"Payload data: {len(data)} bytes, {data} {unpacked}")
             else:
                 print("SystemStatus CRC mismatch: calculated", calcCrc, "received", crc)
     elif cmd == config.REQ_STATUS_CMD:
@@ -116,8 +117,7 @@ def msg_process_thread():
        data = status_fifo.get()   # blocks until data available
        cmd  = data[0]
        on_receive(cmd, data)
-       if cmd == config.SEND_SYSTEM_STATUS_CMD:
-           log_changes.record_status_change()
+       log_changes.record_status_change()
         # if (cmd == SEND_SYSTEM_STATUS_CMD):
         #     print(systemStatus)
         # elif (cmd == NEXT_OBSTACLE_CMD):

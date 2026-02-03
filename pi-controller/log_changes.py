@@ -26,6 +26,11 @@ def _flatten_state():
                 flat[f"systemStatus.{k}"] = f"UNKNOWN({v})"
         elif k == "proximitySensors": 
             flat[f"systemStatus.{k}"] = config.printableProximity(v)
+        elif k == "errorField": 
+            if 0 <= v < len(config.ERROR_FIELD_NAMES):
+                flat[f"systemStatus.{k}"] = config.ERROR_FIELD_NAMES[v]
+            else:
+                flat[f"systemStatus.{k}"] = f"UNKNOWN({v})" 
         else:
             flat[f"systemStatus.{k}"] = v
         
@@ -61,6 +66,11 @@ def _flatten_state_no_obstacles():
                 flat[f"systemStatus.{k}"] = f"UNKNOWN({v})"
         elif k == "proximitySensors": 
             flat[f"systemStatus.{k}"] = config.printableProximity(v)
+        elif k == "errorField": 
+            if 0 <= v < len(config.ERROR_FIELD_NAMES):
+                flat[f"systemStatus.{k}"] = config.ERROR_FIELD_NAMES[v]
+            else:
+                flat[f"systemStatus.{k}"] = f"UNKNOWN({v})" 
         else:
             flat[f"systemStatus.{k}"] = v
     for k, v in config.piStatus.items():

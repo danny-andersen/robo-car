@@ -1,4 +1,5 @@
 struct ObstacleData {
+  uint8_t obstacleNo;
   uint16_t bearing;      //Compass heading of the centre of the obstacle
   uint16_t width;        //The width in degrees of view of the obstacle in front
   uint16_t avgDistance;  //How far away the obstacle is
@@ -8,6 +9,7 @@ struct ObstacleData {
 struct ObstaclesCmd {
   int16_t currentCompassDirn;    //Current compass direction (i.e. straightahead)
   uint8_t numOfObstaclesToSend;  //Number of obstacles found that are to be sent for analysis
+  uint8_t checksum;
 };
 
 struct PiStatusStruct {
@@ -30,6 +32,7 @@ struct SystemStatusStruct {
   uint8_t leftWheelSpeed;
   uint8_t averageSpeed;
   uint8_t distanceTravelled;
+  uint8_t errorField;  //Any errors (currently I2C errors)
   uint8_t checksum;
 };
 
@@ -45,26 +48,64 @@ int8_t piOnBus = 1;    //0 means up and on the bus
 int8_t nanoOnBus = 1;  //0 means up and on the bus - anything else is an error
 
 
+bool checkFrontRightProximity(uint8_t status) {
+  return (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET);
+}
+
+bool checkFrontLeftProximity(uint8_t status) {
+  return (status & FRONT_LEFT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
+}
+
+bool checkFrontProximity(uint8_t status) {
+  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
+}
+
+bool checkDirectFrontProximity(uint8_t status) {
+  //When checking directly in the front, ignore the top left and right, as these are at a more obtuse angle, to detect issues with rotating, rather than driving straight ahead
+  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
+}
+bool checkRearRightProximity(uint8_t status) {
+  return status & REAR_RIGHT_PROX_SET;
+}
+
+bool checkRearLeftProximity(uint8_t status) {
+  return status & REAR_LEFT_PROX_SET;
+}
+
+bool checkRearProximity(uint8_t status) {
+  return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET) || (status & REAR_REAR_PROX_SET);
+}
+
+bool checkDirectRearOnly(uint8_t status) {
+  return (status & REAR_REAR_PROX_SET);
+}
+
+
 bool waitForResponse(uint8_t noOfBytes) {
   unsigned long waitingTime = 0;
-  while (Wire.available() < noOfBytes && waitingTime < 500) {
+  while (Wire.available() < noOfBytes && waitingTime < 50) {
     //Wait for response;
     delay(10);
     waitingTime += 10;
   }
-  return Wire.available() != 0;
+  if (Wire.available() != noOfBytes) {
+    systemStatus.errorField = I2C_RX_TIMEOUT;
+    return false;
+  } else {
+    return true;
+  }
 }
 
-void flush() {
+void flushBus() {
   //Read any bytes still in the buffer
-  delay(10);
   if (Wire.available() > 0) {
-    if (Serial) {
-      Serial.print("Still have bytes to read?? : ");
-      Serial.println(Wire.available());
-    }
-    while (Wire.available() > 0) Serial.print(Wire.read());
-    Serial.println();
+    // if (Serial) {
+    //   Serial.print("Still have bytes to read?? : ");
+    //   Serial.println(Wire.available());
+    // Serial.println();
+    // }
+    while (Wire.available() > 0) Wire.read();
+    systemStatus.errorField = I2C_EXTRA_BYTES;
   }
 }
 
@@ -75,6 +116,7 @@ int8_t rxNanoStatus() {
     uint8_t calc = crc8((uint8_t *)&rdstatus, sizeof(StatusStruct) - 1);
     if (calc != rdstatus.checksum) {
       // BAD PACKET
+      systemStatus.errorField = I2C_NANO_CRC_ERROR;
       return 1;
     } else {
       nanoStatus = rdstatus;
@@ -107,40 +149,50 @@ int8_t rxNanoStatus() {
   return nanoOnBus;
 }
 
-void sendStartMotorCmd() {
-  //Send command to peripheral nano that the drive motors are starting
-  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
-  Wire.write(MOTOR_STARTING_CMD);
-  nanoOnBus = Wire.endTransmission();
-  if (!nanoOnBus) {
-    return rxNanoStatus();
-  } else {
-    return nanoOnBus;
+int8_t sendNanoCmd(uint8_t cmd) {
+  flushBus();
+  uint8_t retryCnt = 0;
+  bool reqFailed = false;
+  do {
+    reqFailed = false;
+    Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+    Wire.write(cmd);
+    nanoOnBus = Wire.endTransmission();
+    if (!nanoOnBus) {
+      nanoOnBus = rxNanoStatus();
+    } else {
+      reqFailed = true;
+      systemStatus.errorField = nanoOnBus;
+      if (nanoOnBus == 5) {
+        //Reset timeout
+        Wire.clearWireTimeoutFlag();
+      }
+    }
+  } while (nanoOnBus && retryCnt++ < 2);
+
+  if (nanoOnBus) {
+    if (reqFailed) {
+      systemStatus.errorField = nanoOnBus;
+    } else {
+      //errorfield set by read
+    }
+  } else if (retryCnt > 0) {
+    systemStatus.errorField = I2C_NANO_RETRIED;
   }
+  return nanoOnBus;
+}
+
+int8_t sendStartMotorCmd() {
+  //Send command to peripheral nano that the drive motors are starting
+  return sendNanoCmd(MOTOR_STARTING_CMD);
 }
 
 int8_t sendStopMotorCmd() {
-  //Send command to peripheral nano that the drive motors are starting
-  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
-  Wire.write(MOTOR_STOPPING_CMD);
-  nanoOnBus = Wire.endTransmission();
-  if (!nanoOnBus) {
-    return rxNanoStatus();
-  } else {
-    return nanoOnBus;
-  }
+  return sendNanoCmd(MOTOR_STOPPING_CMD);
 }
 
 int8_t getNanoStatusCmd() {
-  Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
-  Wire.write(REQ_STATUS_CMD);
-  nanoOnBus = Wire.endTransmission();
-  //Should get a full status response
-  if (!nanoOnBus) {
-    return rxNanoStatus();
-  } else {
-    return nanoOnBus;
-  }
+  return sendNanoCmd(REQ_STATUS_CMD);
 }
 
 int8_t readPiStatus() {
@@ -153,28 +205,54 @@ int8_t readPiStatus() {
       piStatus = rdpiStatus;
       piOnBus = 0;  //Correct ack
     } else {
-      if (Serial && calc != rdpiStatus.checksum) {
-        Serial.print("Read PI: Incorrect crc rx: ");
-        Serial.print(rdpiStatus.checksum);
-        Serial.print(" exp: ");
-        Serial.println(calc);
-      }
+      systemStatus.errorField = I2C_PI_CRC_ERROR;
+      // if (Serial && calc != rdpiStatus.checksum) {
+      //   Serial.print("Read PI: Incorrect crc rx: ");
+      //   Serial.print(rdpiStatus.checksum);
+      //   Serial.print(" exp: ");
+      //   Serial.println(calc);
+      // }
       piOnBus = 1;  //Incorrect status read
     }
   }
-  flush();
+  flushBus();
+  return piOnBus;
+}
+
+int8_t sendPiCmd(uint8_t cmd, byte *data = 0, int dataSize = 0) {
+  uint8_t retryCnt = 0;
+  bool reqFailed = false;
+  do {
+    flushBus();
+    reqFailed = false;
+    Wire.beginTransmission(PI_ADDR);
+    Wire.write(cmd);
+    if (dataSize != 0) {
+      //Send command data
+      Wire.write(data, dataSize);
+    }
+    piOnBus = Wire.endTransmission();
+    //Should get a status response
+    if (!piOnBus) {
+      piOnBus = readPiStatus();
+    } else {
+      reqFailed = true;
+    }
+  } while (piOnBus && retryCnt++ < 2);
+  if (piOnBus) {
+    if (reqFailed) {
+      systemStatus.errorField = piOnBus + 5;
+    } else {
+      //errorField set by read
+    }
+  } else if (retryCnt > 0) {
+    systemStatus.errorField = I2C_PI_CRC_ERROR;
+  }
   return piOnBus;
 }
 
 int8_t getPiStatusCmd() {
-  Wire.beginTransmission(PI_ADDR);
-  Wire.write(REQ_STATUS_CMD);
-  piOnBus = Wire.endTransmission();
-  //Should get a status response
-  if (!piOnBus) {
-    piOnBus = readPiStatus();
-  }
-  return piOnBus;
+  return sendPiCmd(REQ_STATUS_CMD);
 }
 
 void getCombinedProximity() {
@@ -191,49 +269,13 @@ void getCombinedProximity() {
   }
 }
 
-bool checkFrontRightProximity(uint8_t status) {
-  return (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET);
-}
-
-bool checkFrontLeftProximity(uint8_t status) {
-  return (status & FRONT_LEFT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET);
-}
-
-bool checkFrontProximity(uint8_t status) {
-  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_LEFT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
-}
-
-bool checkDirectFrontProximity(uint8_t status) {
-  //When checking directly in the front, ignore the top left and right, as these are at a more obtuse angle, to detect issues with rotating, rather than driving straight ahead
-  return (status & FRONT_LEFT_PROX_SET) || (status & FRONT_RIGHT_PROX_SET) || (status & FRONT_FRONT_PROX_SET);
-
-}
-bool checkRearRightProximity(uint8_t status) {
-  return status & REAR_RIGHT_PROX_SET;
-}
-
-bool checkRearLeftProximity(uint8_t status) {
-  return status & REAR_LEFT_PROX_SET;
-}
-
-bool checkRearProximity(uint8_t status) {
-  return (status & REAR_LEFT_PROX_SET) || (status & REAR_RIGHT_PROX_SET) || (status & REAR_REAR_PROX_SET);
-}
-
-bool checkDirectRearOnly(uint8_t status) {
-  return (status & REAR_REAR_PROX_SET);
-}
-
 int8_t sendSystemStatus() {
   systemStatus.checksum = crc8((uint8_t *)&systemStatus, sizeof(systemStatus) - 1);
-  Wire.beginTransmission(PI_ADDR);
-  Wire.write(SEND_SYSTEM_STATUS_CMD);
-  Wire.write((byte *)&systemStatus, sizeof(systemStatus));
-  piOnBus = Wire.endTransmission();
+  piOnBus = sendPiCmd(SEND_SYSTEM_STATUS_CMD, (byte *)&systemStatus, sizeof(systemStatus));
   if (!piOnBus) {
-    //Should get PI status in response
-    piOnBus = readPiStatus();
+    systemStatus.errorField = 0;  //Zero error field as PI has logged it
   }
+  delay(10); //Give time for PI to recover
   return piOnBus;
 }
 
@@ -241,39 +283,34 @@ int8_t sendObstacles(uint16_t heading, uint8_t numObjects, Arc *arcp) {
   // Serial.println("Sending obstacle cmd...");
   obstaclesCmd.currentCompassDirn = heading;
   obstaclesCmd.numOfObstaclesToSend = numObjects;
-  Wire.beginTransmission(PI_ADDR);
-  Wire.write(SENDING_OBSTACLES_CMD);
-  Wire.write((byte *)&obstaclesCmd, sizeof(obstaclesCmd));
-  piOnBus = Wire.endTransmission();
-  if (!piOnBus) {
-    //Should get PI status in response
-    piOnBus = readPiStatus();
+  obstaclesCmd.checksum = crc8((uint8_t *)&obstaclesCmd, sizeof(obstaclesCmd) - 1);
+  int8_t retryCnt = 0;
+  do {
+    piOnBus = sendPiCmd(SENDING_OBSTACLES_CMD, (byte *)&obstaclesCmd, sizeof(obstaclesCmd));
     if (!piOnBus) {
       //In business
       //Now send each obstacle
       // Serial.println("Sending obstacles");
+      delay(20); //Give PI time to receive it and put it into its FIFO
       int i = 0;
       for (; i < numObjects && !piOnBus; i++) {
+        obstacle.obstacleNo = i;
         obstacle.bearing = normalise(heading + (SERVO_CENTRE - arcp->centreDirection));
         obstacle.width = arcp->width;
         obstacle.avgDistance = arcp->avgDistance;
+        obstacle.checksum = crc8((uint8_t *)&obstacle, sizeof(obstacle) - 1);
         arcp++;
-        Wire.beginTransmission(PI_ADDR);
-        Wire.write(NEXT_OBSTACLE_CMD);
-        Wire.write((byte *)&obstacle, sizeof(obstacle));
-        Wire.endTransmission();
-        // Serial.print("Sent obstacle ");
-        // Serial.println(i);
-        //Should get PI status in response
-        piOnBus = readPiStatus();
+        piOnBus = sendPiCmd(NEXT_OBSTACLE_CMD, (byte *)&obstacle, sizeof(obstacle)); 
+        delay(20); //Give PI time to receive it and put it into its FIFO
       }
-      // if (piOnBus) {
-      //   if (Serial) {
-      //     Serial.print("Failed to send all obstacles, sent: ");
-      //     Serial.println(i);
-      //   }
-      // }
+      if (piOnBus) {
+        if (Serial) {
+          Serial.print("Failed to send all obstacles, retrying - sent: ");
+          Serial.println(i);
+        }
+      }
     }
-  }
+  } while (piOnBus && retryCnt++ < 2);
+  delay(10); //Give time for PI to recover
   return piOnBus;
 }
