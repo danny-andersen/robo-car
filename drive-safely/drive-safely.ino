@@ -4,8 +4,8 @@
 
 #include "robo-car.h"
 #include "ground-tracking.h"
-#include "cmps-12.h"
 #include "distance-sensor.h"
+#include "cmps-12.h"
 #include "i2c-nano.h"
 #include "i2c-pi.h"
 #include "motor-driver.h"
@@ -29,6 +29,7 @@ bool drivingForward = false;  //Set to true when driving forward
 float batteryVoltage = 0.0;
 
 unsigned long statusTimer = 0;
+long lastLoopTime = 0;  //Last time that we went through a loop
 
 void updateStatus() {
   batteryVoltage = getBatteryVoltage();
@@ -46,7 +47,7 @@ void setup() {
   groundTrackingInit();
   // Start I²C bus
   Wire.begin();
-  Wire.setWireTimeout(10000); //10ms
+  Wire.setWireTimeout(10000);  //10ms
   statusInit();
   showBatteryStatus();
   delay(3000);  //Let everything settle before initialising accelerometer
@@ -61,7 +62,7 @@ void setup() {
   //Send init status to PI for logging
   updateStatus();
   statusTimer = 0;
-  wdt_enable(WDTO_4S);
+  wdt_enable(WDTO_2S);
   systemStatus.robotState = SWEEP;
 }
 
@@ -72,6 +73,7 @@ void setup() {
 // 5  Goto (1).
 
 void loop() {
+  lastLoopTime = millis();
   wdt_reset();
   if (leftGround()) {
     // if (Serial) Serial.println("Left ground!");
@@ -81,10 +83,11 @@ void loop() {
     systemStatus.robotState = SWEEP;
   }
 
+  // readBearingAndAttitude(&systemStatus.currentBearing, &systemStatus.pitch, &systemStatus.roll);
   systemStatus.currentBearing = getCompassBearing();
   currentDirectionRad = getCompassBearingRads();
-
-
+  readAttitude(&(systemStatus.pitch), &(systemStatus.roll));
+  
   statusTimer += LOOP_TIME;
   if (statusTimer > STATUS_TIME) {
     statusTimer = 0;
@@ -155,8 +158,10 @@ void loop() {
       systemStatus.robotState = STOPPED;
       break;
   }
-
-  delay(LOOP_TIME);
+  long loopDelay = LOOP_TIME - (millis() - lastLoopTime);
+  if (loopDelay >= 0) {
+    delay(loopDelay);
+  }
 }
 
 Robot_State adjustDirection() {

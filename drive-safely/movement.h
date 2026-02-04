@@ -59,9 +59,9 @@ bool rotateTo(int16_t directionRequired) {
   } else {
     systemStatus.robotState = ROTATING_LEFT;
   }
+  long loopStartTime = millis();
 
   do {
-
     //If rotating left and front left or rear right - cant go this way.
     //If both front - need to reverse a bit first until one of the sensors is freed up, unless rear sensor is set. If so, try backing up a bit to see if one of the front sensor clears
 
@@ -97,8 +97,11 @@ bool rotateTo(int16_t directionRequired) {
         driveMotor(FORWARD, 50, 50);
         break;
     }
-
-    delay(ROTATE_CHECK_INTERVAL);
+    long delayTime = ROTATE_CHECK_INTERVAL - (millis() - loopStartTime);
+    if (delayTime > 0) {
+      delay(delayTime);
+    }
+    loopStartTime = millis();
     timer += ROTATE_CHECK_INTERVAL;  // Prevent continuous spinning if something goes wrong
     wdt_reset();
     currentDirn = getCompassBearing();  // Before we work out which direction to turn, remember what straightahead is
@@ -338,6 +341,7 @@ void backOut() {
   bool removingPitchOrRoll = false;
   unsigned long backoutTimer = 0;
   do {
+    long loopTime = millis();
     getCombinedProximity();
     if (leftGround() || checkRearProximity(systemStatus.proximityState)) {
       // Something behind us or we have back been picked up - stop
@@ -354,7 +358,10 @@ void backOut() {
       //Continue driving back
       drive(BACK, forwardDirection, 50);
     }
-    delay(50);
+    long loopDelay = 100 - (millis() - loopTime);
+    if (loopDelay >= 0) {
+      delay(loopDelay);
+    }
     wdt_reset();
     backoutTimer += 50;
   } while (backoutTimer < 500);

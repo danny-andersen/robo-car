@@ -95,6 +95,7 @@ def record_status_change():
     flat_no_obs = _flatten_state_no_obstacles()
     
     changed = _detect_changes(_last_snapshot["flat_no_obstacles"], flat_no_obs)
+    # changed = full_flat
     
     if any(changed.values()):
         # Expand change flags to full_flat (obstacles always False) 
