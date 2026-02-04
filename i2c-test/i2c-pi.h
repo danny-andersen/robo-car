@@ -1,3 +1,7 @@
+#define PI_REQUEST_INTERVAL 50  //Required gap (ms) between commands being sent to the PI, to give time for PI to dequeue and process the previous command
+#define I2C_RETRY_CNT 2 //Number of times to try to send a command to the Nano or the PI
+
+
 struct ObstacleData {
   uint8_t obstacleNo;
   uint16_t bearing;      //Compass heading of the centre of the obstacle
@@ -47,6 +51,7 @@ uint8_t numToReceive = 0;
 int8_t piOnBus = 1;    //0 means up and on the bus
 int8_t nanoOnBus = 1;  //0 means up and on the bus - anything else is an error
 
+long lastPiRequestTime = 0;  //The time of the last request to the PI - we need a gap of >20ms between commands to the PI, to give it time to process the last request
 
 bool checkFrontRightProximity(uint8_t status) {
   return (status & FRONT_RIGHT_PROX_SET) || (status & TOP_FRONT_RIGHT_PROX_SET);
@@ -83,7 +88,7 @@ bool checkDirectRearOnly(uint8_t status) {
 
 bool waitForResponse(uint8_t noOfBytes) {
   unsigned long waitingTime = 0;
-  while (Wire.available() < noOfBytes && waitingTime < 50) {
+  while (Wire.available() < noOfBytes && waitingTime < 100) {
     //Wait for response;
     delay(10);
     waitingTime += 10;
@@ -168,7 +173,7 @@ int8_t sendNanoCmd(uint8_t cmd) {
         Wire.clearWireTimeoutFlag();
       }
     }
-  } while (nanoOnBus && retryCnt++ < 2);
+  } while (nanoOnBus && retryCnt++ < I2C_RETRY_CNT);
 
   if (nanoOnBus) {
     if (reqFailed) {
@@ -176,7 +181,7 @@ int8_t sendNanoCmd(uint8_t cmd) {
     } else {
       //errorfield set by read
     }
-  } else if (retryCnt > 0) {
+  } else if (retryCnt > 1) {
     systemStatus.errorField = I2C_NANO_RETRIED;
   }
   return nanoOnBus;
@@ -223,6 +228,11 @@ int8_t sendPiCmd(uint8_t cmd, byte *data = 0, int dataSize = 0) {
   uint8_t retryCnt = 0;
   bool reqFailed = false;
   do {
+    long txGap = millis() - lastPiRequestTime;
+    if (txGap < PI_REQUEST_INTERVAL) {
+      //Wait for PI to be ready to receive next message
+      delay(PI_REQUEST_INTERVAL - txGap);
+    }
     flushBus();
     reqFailed = false;
     Wire.beginTransmission(PI_ADDR);
@@ -238,15 +248,16 @@ int8_t sendPiCmd(uint8_t cmd, byte *data = 0, int dataSize = 0) {
     } else {
       reqFailed = true;
     }
-  } while (piOnBus && retryCnt++ < 2);
+    lastPiRequestTime = millis();
+  } while (piOnBus && retryCnt++ < I2C_RETRY_CNT);
   if (piOnBus) {
     if (reqFailed) {
       systemStatus.errorField = piOnBus + 5;
     } else {
       //errorField set by read
     }
-  } else if (retryCnt > 0) {
-    systemStatus.errorField = I2C_PI_CRC_ERROR;
+  } else if (retryCnt > 1) {
+    systemStatus.errorField = I2C_PI_RETRIED;
   }
   return piOnBus;
 }
@@ -275,7 +286,6 @@ int8_t sendSystemStatus() {
   if (!piOnBus) {
     systemStatus.errorField = 0;  //Zero error field as PI has logged it
   }
-  delay(10); //Give time for PI to recover
   return piOnBus;
 }
 
@@ -291,7 +301,6 @@ int8_t sendObstacles(uint16_t heading, uint8_t numObjects, Arc *arcp) {
       //In business
       //Now send each obstacle
       // Serial.println("Sending obstacles");
-      delay(20); //Give PI time to receive it and put it into its FIFO
       int i = 0;
       for (; i < numObjects && !piOnBus; i++) {
         obstacle.obstacleNo = i;
@@ -300,17 +309,15 @@ int8_t sendObstacles(uint16_t heading, uint8_t numObjects, Arc *arcp) {
         obstacle.avgDistance = arcp->avgDistance;
         obstacle.checksum = crc8((uint8_t *)&obstacle, sizeof(obstacle) - 1);
         arcp++;
-        piOnBus = sendPiCmd(NEXT_OBSTACLE_CMD, (byte *)&obstacle, sizeof(obstacle)); 
-        delay(20); //Give PI time to receive it and put it into its FIFO
+        piOnBus = sendPiCmd(NEXT_OBSTACLE_CMD, (byte *)&obstacle, sizeof(obstacle));
       }
       if (piOnBus) {
         if (Serial) {
-          Serial.print("Failed to send all obstacles, retrying - sent: ");
+          Serial.print("Failed to send all obs - sent: ");
           Serial.println(i);
         }
       }
     }
   } while (piOnBus && retryCnt++ < 2);
-  delay(10); //Give time for PI to recover
   return piOnBus;
 }
