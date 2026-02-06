@@ -56,13 +56,18 @@ void setup() {
   motor_Init();
   distanceSensorInit();
   //Wait until nano and pi peripherals are ready
-  getCombinedProximity();
+  do {
+    getCombinedProximity();
+    // Serial.println(piOnBus);
+    delay(100);
+  } while (piOnBus || nanoOnBus);
   delay(1000);
   systemStatus.currentBearing = getCompassBearing();
   //Send init status to PI for logging
   updateStatus();
   statusTimer = 0;
-  wdt_enable(WDTO_2S);
+  wdt_enable(WDTO_4S);
+
   systemStatus.robotState = SWEEP;
 }
 
@@ -78,6 +83,10 @@ void loop() {
   if (leftGround()) {
     // if (Serial) Serial.println("Left ground!");
     systemStatus.robotState = OFF_GROUND;
+    sendStopMotorCmd();
+    currentDriveState = STOPPED;
+    drive(STOP, currentDirectionRad, 0);
+
   } else if (systemStatus.robotState == OFF_GROUND) {
     //Back on the ground - restart from beginning
     systemStatus.robotState = SWEEP;
@@ -87,7 +96,7 @@ void loop() {
   systemStatus.currentBearing = getCompassBearing();
   currentDirectionRad = getCompassBearingRads();
   readAttitude(&(systemStatus.pitch), &(systemStatus.roll));
-  
+
   statusTimer += LOOP_TIME;
   if (statusTimer > STATUS_TIME) {
     statusTimer = 0;
@@ -137,18 +146,7 @@ void loop() {
       }
       driveAndScan();
       break;
-    case INIT_FAILED:
-      //Cant do anything
-      // if (Serial) Serial.println("Init failed, halting...");
-      drive(STOP, currentDirectionRad, 0);
-      sendStopMotorCmd();
-      currentDriveState = STOPPED;
-      systemStatus.robotState = STOPPED;
-      break;
     case OFF_GROUND:
-      sendStopMotorCmd();
-      currentDriveState = STOPPED;
-      drive(STOP, currentDirectionRad, 0);
       break;
     default:
       // if (Serial) Serial.println("In unknown state...");

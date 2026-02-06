@@ -1,7 +1,7 @@
 import csv
 import os
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import config
 
@@ -31,6 +31,11 @@ def _flatten_state():
                 flat[f"systemStatus.{k}"] = config.ERROR_FIELD_NAMES[v]
             else:
                 flat[f"systemStatus.{k}"] = f"UNKNOWN({v})" 
+        elif k == "timestamp": 
+            abstime = config.lastBootTime + v/1000.0  # Timestamp is ms since boot
+            dt = datetime.fromtimestamp(abstime)
+            dt += timedelta(milliseconds=(v % 1000))   # Add back the ms part for better resolution in logs    
+            flat[f"systemStatus.{k}"] = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # Format with ms precision
         else:
             flat[f"systemStatus.{k}"] = v
         
@@ -71,6 +76,9 @@ def _flatten_state_no_obstacles():
                 flat[f"systemStatus.{k}"] = config.ERROR_FIELD_NAMES[v]
             else:
                 flat[f"systemStatus.{k}"] = f"UNKNOWN({v})" 
+        elif k == "timestamp":
+            #ignore timestamp for change detection
+            flat[f"systemStatus.{k}"] = None
         else:
             flat[f"systemStatus.{k}"] = v
     for k, v in config.piStatus.items():
@@ -135,13 +143,13 @@ def write_html(flat, changed):
     with open("robo-status.html", "a") as f:
         if not file_exists:
             f.write("<html><body><table border='1'>\n")
-            f.write("<tr><th>Timestamp</th>")
+            # f.write("<tr><th>Timestamp</th>")
             for key in flat.keys():
                 f.write(f"<th>{key}</th>")
             f.write("</tr>\n")
 
         f.write("<tr>")
-        f.write(f"<td>{datetime.now().isoformat()}</td>")
+        # f.write(f"<td>{datetime.now().isoformat()}</td>")
 
         for key, value in flat.items():
             if changed[key]:

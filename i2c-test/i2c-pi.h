@@ -1,5 +1,5 @@
 #define PI_REQUEST_INTERVAL 50  //Required gap (ms) between commands being sent to the PI, to give time for PI to dequeue and process the previous command
-#define I2C_RETRY_CNT 2 //Number of times to try to send a command to the Nano or the PI
+#define I2C_RETRY_CNT 2         //Number of times to try to send a command to the Nano or the PI
 
 
 struct ObstacleData {
@@ -24,6 +24,7 @@ struct PiStatusStruct {
 };
 
 struct SystemStatusStruct {
+  unsigned long timestamp;  //This is the timestamp in milliseconds since boot up
   int16_t humidity;
   int16_t tempC;
   uint16_t batteryVoltage;
@@ -114,6 +115,36 @@ void flushBus() {
   }
 }
 
+#define SDA_PIN A4
+#define SCL_PIN A5
+
+void i2cBusReset() {
+  pinMode(SCL_PIN, OUTPUT);
+  pinMode(SDA_PIN, INPUT_PULLUP);
+
+  // 9 clock pulses to free any stuck slave
+  for (int i = 0; i < 9; i++) {
+    digitalWrite(SCL_PIN, HIGH);
+    delayMicroseconds(5);
+    digitalWrite(SCL_PIN, LOW);
+    delayMicroseconds(5);
+  }
+
+  // STOP condition
+  pinMode(SDA_PIN, OUTPUT);
+  digitalWrite(SDA_PIN, LOW);
+  delayMicroseconds(5);
+  digitalWrite(SCL_PIN, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(SDA_PIN, HIGH);
+  delayMicroseconds(5);
+
+  // Return control to Wire
+  pinMode(SDA_PIN, INPUT_PULLUP);
+  pinMode(SCL_PIN, INPUT_PULLUP);
+}
+
+
 int8_t rxNanoStatus() {
   Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(StatusStruct));
   if (waitForResponse(sizeof(StatusStruct))) {
@@ -126,7 +157,7 @@ int8_t rxNanoStatus() {
     } else {
       nanoStatus = rdstatus;
       //Copy to system status to send to PI
-      systemStatus.proximityState = nanoStatus.proximityState;
+      systemStatus.proximityState = nanoStatus.proximityState | piStatus.lidarStatus;  //OR in the current Lidar status with the Proximity sensors
       systemStatus.rightWheelSpeed = nanoStatus.currentRightSpeed;
       systemStatus.leftWheelSpeed = nanoStatus.currentLeftSpeed;
       systemStatus.averageSpeed = nanoStatus.averageSpeed;
@@ -201,13 +232,18 @@ int8_t getNanoStatusCmd() {
 }
 
 int8_t readPiStatus() {
-  Wire.requestFrom(PI_ADDR, sizeof(PiStatusStruct));
-  if (waitForResponse(sizeof(PiStatusStruct))) {
+  unsigned long start = millis();
+  int bytesNeeded = sizeof(PiStatusStruct);
+  Wire.requestFrom(PI_ADDR, bytesNeeded);
+  if (waitForResponse(bytesNeeded)) {
     //Should get pi status back acknowledging receipt
-    Wire.readBytes((byte *)&rdpiStatus, sizeof(PiStatusStruct));
-    uint8_t calc = crc8((uint8_t *)&rdpiStatus, sizeof(PiStatusStruct) - 1);
+    Wire.readBytes((byte *)&rdpiStatus, bytesNeeded);
+    uint8_t calc = crc8((uint8_t *)&rdpiStatus, bytesNeeded - 1);
     if (calc == rdpiStatus.checksum && rdpiStatus.ready == 1) {
       piStatus = rdpiStatus;
+      //OR the lidar proximity status in with the IR proximity sensors
+      systemStatus.proximityState = piStatus.lidarStatus | nanoStatus.proximityState;
+
       piOnBus = 0;  //Correct ack
     } else {
       systemStatus.errorField = I2C_PI_CRC_ERROR;
@@ -228,13 +264,13 @@ int8_t sendPiCmd(uint8_t cmd, byte *data = 0, int dataSize = 0) {
   uint8_t retryCnt = 0;
   bool reqFailed = false;
   do {
-    long txGap = millis() - lastPiRequestTime;
+    unsigned long now = millis();
+    long txGap = now - lastPiRequestTime;
     if (txGap < PI_REQUEST_INTERVAL) {
-      //Wait for PI to be ready to receive next message
       delay(PI_REQUEST_INTERVAL - txGap);
     }
-    flushBus();
-    reqFailed = false;
+    // Reset bus before each retry
+    i2cBusReset();
     Wire.beginTransmission(PI_ADDR);
     Wire.write(cmd);
     if (dataSize != 0) {
@@ -271,16 +307,14 @@ void getCombinedProximity() {
     //Try and read a valid proximatey status continuously
     //Eventually the watchdog will trigger if cant get it - we cant proceed without it
     nanoOnBus = getNanoStatusCmd();
+    delay(10);
   } while (nanoOnBus);
   //Get the PI status, which includes the LIDAR proximity state, with the same bits set as the proximity sensors on the nano
   piOnBus = getPiStatusCmd();
-  if (!piOnBus) {
-    //OR the lidar proximity status in with the IR proximity sensors
-    systemStatus.proximityState |= piStatus.lidarStatus;
-  }
 }
 
 int8_t sendSystemStatus() {
+  systemStatus.timestamp = millis();
   systemStatus.checksum = crc8((uint8_t *)&systemStatus, sizeof(systemStatus) - 1);
   piOnBus = sendPiCmd(SEND_SYSTEM_STATUS_CMD, (byte *)&systemStatus, sizeof(systemStatus));
   if (!piOnBus) {
@@ -311,12 +345,12 @@ int8_t sendObstacles(uint16_t heading, uint8_t numObjects, Arc *arcp) {
         arcp++;
         piOnBus = sendPiCmd(NEXT_OBSTACLE_CMD, (byte *)&obstacle, sizeof(obstacle));
       }
-      if (piOnBus) {
-        if (Serial) {
-          Serial.print("Failed to send all obs - sent: ");
-          Serial.println(i);
-        }
-      }
+      // if (piOnBus) {
+      //   if (Serial) {
+      //     Serial.print("Failed to send all obs - sent: ");
+      //     Serial.println(i);
+      //   }
+      // }
     }
   } while (piOnBus && retryCnt++ < 2);
   return piOnBus;

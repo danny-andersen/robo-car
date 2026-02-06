@@ -57,8 +57,8 @@ def processProximityScan(scan, robotState):
             config.piStatus["lidarProximity"] |= bitSet 
             
             
-    if (config.piStatus["lidarProximity"] != 0):
-        print(f"LIDAR Proximity Status: {hex(config.piStatus["lidarProximity"])} {config.printableProximity(config.piStatus["lidarProximity"])}")
+    # if (config.piStatus["lidarProximity"] != 0):
+    #     print(f"LIDAR Proximity Status: {hex(config.piStatus["lidarProximity"])} {config.printableProximity(config.piStatus["lidarProximity"])}")
 
 # --- 1. Spatial median filter (3-point window) ---
 def median_filter(scan):

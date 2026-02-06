@@ -1,6 +1,6 @@
 import pigpio
 # import RPi.GPIO as GPIO
-import time
+from datetime import datetime
 
 import config
 import log_changes
@@ -85,7 +85,8 @@ def on_receive(cmd, data):
             crc = payload[-1]
             if (calcCrc == crc):
                 unpacked = config.SystemStatusStruct.unpack(payload)
-                (config.systemStatus["humidity"],
+                (config.systemStatus["timestamp"],
+                config.systemStatus["humidity"],
                 config.systemStatus["tempC"],
                 config.systemStatus["batteryVoltage"],
                 config.systemStatus["robotState"],
@@ -101,6 +102,9 @@ def on_receive(cmd, data):
                 crc) = unpacked
                 # print("System status updated:", config.systemStatus)
                 # print(f"Payload data: {len(data)} bytes, {data} {unpacked}")
+                if (config.systemStatus["robotState"] == 0):
+                    config.lastBootTime = datetime.now().timestamp()
+                    print("Robot state: INIT")
             else:
                 print("SystemStatus CRC mismatch: calculated", calcCrc, "received", crc)
     elif cmd == config.REQ_STATUS_CMD:

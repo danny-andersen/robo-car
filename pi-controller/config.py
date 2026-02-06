@@ -1,5 +1,5 @@
 import struct
-
+from datetime import datetime
 
 # -----------------------------
 # I2C slave address
@@ -63,8 +63,8 @@ PROXIMITY_ANGLE_REAR_RIGHT_END = 130
 ObstacleData_struct = struct.Struct("<bHHHB")  # obstacleNum, relDir, width, avgDistance, crc
 ObstaclesCmd_struct = struct.Struct("<hBB")  # currentCompassDirn, numToSend, crc
 SystemStatusStruct = struct.Struct(
-    "<hhHBBhbbBBBBBB"
-)  # humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, errorField, CRC
+    "<LhhHBBhbbBBBBBB"
+)  # timestamp, humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, errorField, CRC
 PiStatusStruct = struct.Struct("<BBH")  # systemReady, lidarProximity, directionToDrive
 
 
@@ -90,6 +90,7 @@ obstacles = [
 
 
 systemStatus = {
+    "timestamp": 0,
     "humidity": 0,
     "tempC": 0,
     "batteryVoltage": 0,
@@ -147,6 +148,8 @@ ERROR_FIELD_NAMES = [
   "I2C_PI_RETRIED",
   "I2C_NANO_RETRIED",
 ]
+
+lastBootTime = 0
 
 # LIDAR
 SERIAL_PORT = "/dev/ttyS0"  # GPIO serial port on Raspberry Pi
