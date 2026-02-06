@@ -2,8 +2,19 @@
 
 #define ROTATE_CHECK_INTERVAL 100
 #define MAX_ROTATE_TIME 5000
+#define ROTATION_STUCK_LOOP_COUNT 5 //Number of rotation loops before we say we are stuck rotating in this direction (as bearing hasnt changed)
 
 Robot_State lastRobotState = INIT;
+Robot_State nextState = ROTATING;  //This is used to determine the next rotation state after moving forward or back after an obstruction
+int16_t currentDirn = 0;           // Before we work out which direction to turn, remember what straightahead is
+int16_t lastDirn = 0;              //Direction last pointing in before the rotation started
+int16_t rotate = 0;                //Which way to rotate
+int16_t initialRotation = 0;       //Initial rotation amount and direction
+long timer = 0;
+long backTimer = 0;
+long forwardTimer = 0;
+bool triedOtherDirn = false;
+uint8_t rotationStuckCnt = 0; // Number of loops where we havent rotated
 
 
 int16_t getRotation(int16_t current, int16_t required) {
@@ -28,25 +39,212 @@ int16_t getRotation(int16_t current, int16_t required) {
   return rotate;
 }
 
+void checkRotatingRight() {
+  if (checkFrontRightProximity(systemStatus.proximityState) && checkRearLeftProximity(systemStatus.proximityState)) {
+    //If rotating right and front right or rear left - cant go this way round, try the other way
+    systemStatus.robotState = ROTATING_LEFT_BLOCKED_RIGHT;
+  } else if (checkFrontRightProximity(systemStatus.proximityState) && !checkDirectRearOnly(systemStatus.proximityState)) {
+    //If rotating right and blocked front right, but we are clear to the back so can try backing up a little
+    systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
+    nextState = ROTATING_RIGHT;
+    backTimer = 500;
+
+  } else if (checkRearLeftProximity(systemStatus.proximityState) && !checkDirectFrontProximity(systemStatus.proximityState)) {
+    //Only the back is blocked, so go forward a little
+    systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
+    forwardTimer = 500;
+  } else if (rotationStuckCnt > ROTATION_STUCK_LOOP_COUNT) {
+    //We dont appear to be turning - try the other way
+    systemStatus.robotState = ROTATING_LEFT_BLOCKED_RIGHT;
+  }
+}
+
+void checkRotatingLeft() {
+  if (checkFrontLeftProximity(systemStatus.proximityState) && checkRearRightProximity(systemStatus.proximityState)) {
+    //If rotating right and front right or rear left - cant go this way round, try the other way
+    systemStatus.robotState = ROTATING_RIGHT_BLOCKED_LEFT;
+  } else if (checkFrontLeftProximity(systemStatus.proximityState) && !checkDirectRearOnly(systemStatus.proximityState)) {
+    //If rotating right and blocked front right, but we are clear to the back so can try backing up a little
+    systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
+    backTimer = 500;
+    nextState = ROTATING_LEFT;
+  } else if (checkRearRightProximity(systemStatus.proximityState) && !checkDirectFrontProximity(systemStatus.proximityState)) {
+    systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
+    forwardTimer = 500;
+    nextState = ROTATING_LEFT;
+  } else if (rotationStuckCnt > ROTATION_STUCK_LOOP_COUNT) {
+    //We dont appear to be turning - try the other way
+    systemStatus.robotState = ROTATING_RIGHT_BLOCKED_LEFT;
+  }
+}
+
+void checkRotatingLeftBlockedRight() {
+  if (!checkFrontRightProximity(systemStatus.proximityState) && !checkDirectFrontProximity(systemStatus.proximityState) && checkRearLeftProximity(systemStatus.proximityState)) {
+    //We have cleared the front right issue but not the rear left - go forward a bit and then retry the rotation
+    forwardTimer = 500;
+    nextState = ROTATING_RIGHT;
+    systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
+  } else if (checkFrontRightProximity(systemStatus.proximityState) && !checkDirectRearOnly(systemStatus.proximityState) && !checkRearLeftProximity(systemStatus.proximityState)) {
+    //We have cleared the rear left issue but not the front - back up a bit and then retry
+    backTimer = 500;
+    systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
+    nextState = ROTATING_RIGHT;
+  } else if (checkFrontLeftProximity(systemStatus.proximityState) && rotationStuckCnt > 2) {
+    //We cant go round this way either - try going forward or backing out
+    if (!checkDirectRearOnly(systemStatus.proximityState)) {
+      //Clear directly behind - reverse up a bit
+      systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
+      nextState = ROTATING_RIGHT;
+      backTimer = 500;
+    } else if (!checkDirectFrontProximity(systemStatus.proximityState)) {
+      //Clear directly in front - try going forward slightly
+      systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
+      forwardTimer = 500;
+      nextState = ROTATING_RIGHT;
+    }
+  } else if (checkRearRightProximity(systemStatus.proximityState) && rotationStuckCnt > 2) {
+    //We cant go round this way either - try going forward or backing out
+    if (!checkDirectFrontProximity(systemStatus.proximityState)) {
+      //Clear directly in front - try going forward slightly
+      systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
+      nextState = ROTATING_RIGHT;
+      forwardTimer = 500;
+    } else if (!checkDirectRearOnly(systemStatus.proximityState)) {
+      //Clear directly behind - reverse up a bit
+      systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
+      backTimer = 500;
+      nextState = ROTATING_RIGHT;
+    }
+  } else if (rotationStuckCnt > ROTATION_STUCK_LOOP_COUNT) {
+    // We cant rotate this way either and cant go forward or back....
+    //try going right again
+    systemStatus.robotState = ROTATING_RIGHT;
+  }
+}
+
+void checkRightBlockedLeft() {
+  if (!checkFrontLeftProximity(systemStatus.proximityState) && !checkDirectFrontProximity(systemStatus.proximityState) && checkRearRightProximity(systemStatus.proximityState)) {
+    //We have cleared the front left issue but not the rear right - go forward a bit and then retry the rotation
+    forwardTimer = 500;
+    nextState = ROTATING_LEFT;
+    systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
+  } else if (checkFrontLeftProximity(systemStatus.proximityState) && !checkDirectRearOnly(systemStatus.proximityState) && !checkRearLeftProximity(systemStatus.proximityState)) {
+    //We have cleared the rear left issue but not the front - back up a bit and then retry
+    backTimer = 500;
+    nextState = ROTATING_LEFT;
+    systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
+  } else if (checkFrontRightProximity(systemStatus.proximityState) && rotationStuckCnt > 2) {
+    //We cant go round this way either - try going forward or backing out
+    if (!checkDirectRearOnly(systemStatus.proximityState)) {
+      //Clear directly behind - reverse up a bit
+      systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
+      nextState = ROTATING_LEFT;
+    } else if (!checkDirectFrontProximity(systemStatus.proximityState)) {
+      //Clear directly in front - try going forward slightly
+      systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
+      nextState = ROTATING_LEFT;
+    }
+  } else if (checkRearLeftProximity(systemStatus.proximityState) && rotationStuckCnt > 2) {
+    //We cant go round this way either - try going forward or backing out
+    if (!checkDirectFrontProximity(systemStatus.proximityState)) {
+      //Clear directly in front - try going forward slightly
+      systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
+      nextState = ROTATING_LEFT;
+    } else if (!checkDirectRearOnly(systemStatus.proximityState)) {
+      //Clear directly behind - reverse up a bit
+      systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
+      nextState = ROTATING_LEFT;
+      backTimer = 500;
+    }
+  } else if (rotationStuckCnt > ROTATION_STUCK_LOOP_COUNT) {
+    // We cant rotate this way either and cant go forward or back....
+    //try going left again
+    systemStatus.robotState = ROTATING_LEFT;
+  }
+}
+
+void checkRotatingFrontBlockedBackingOut() {
+  if (checkDirectRearOnly(systemStatus.proximityState) || (backTimer <= 0)) {
+    //Can't back up any further - start from the top
+    if (nextState == ROTATING_RIGHT && checkFrontRightProximity(systemStatus.proximityState)) {
+      //Still blocked right - try going left
+      systemStatus.robotState = ROTATING_LEFT_BLOCKED_RIGHT;
+    } else if (nextState == ROTATING_LEFT && checkFrontLeftProximity(systemStatus.proximityState)) {
+      systemStatus.robotState = ROTATING_RIGHT_BLOCKED_LEFT;
+    } else {
+      systemStatus.robotState = nextState;
+    }
+  } else if ((nextState == ROTATING_RIGHT && !checkFrontRightProximity(systemStatus.proximityState)) || (nextState == ROTATING_LEFT && !checkFrontLeftProximity(systemStatus.proximityState))) {
+    //Now clear to the front - resume rotating
+    systemStatus.robotState = nextState;
+  }
+}
+
+void checkRotatingRearBlockedGoForward() {
+  if (checkDirectFrontProximity(systemStatus.proximityState) || (forwardTimer <= 0)) {
+    //Can't go forward any further - start from the top
+    if (nextState == ROTATING_RIGHT && checkRearLeftProximity(systemStatus.proximityState)) {
+      //Still blocked - try going left
+      systemStatus.robotState = ROTATING_LEFT_BLOCKED_RIGHT;
+    } else if (nextState == ROTATING_LEFT && checkFrontLeftProximity(systemStatus.proximityState)) {
+      systemStatus.robotState = ROTATING_RIGHT_BLOCKED_LEFT;
+    } else {
+      systemStatus.robotState = nextState;
+    }
+  } else if ((nextState == ROTATING_RIGHT && !checkRearLeftProximity(systemStatus.proximityState)) || (nextState == ROTATING_LEFT && !checkRearRightProximity(systemStatus.proximityState))) {
+    //Now clear to the rear - resume rotating
+    systemStatus.robotState = nextState;
+  }
+}
+
+void checkRotation() {
+  //Check on what obstructions we have based on our current rotation state - need to work out what movement is possible
+  //If rotating left and front left or rear right - cant go this way.
+  //If both front - need to reverse a bit first until one of the sensors is freed up, unless rear sensor is set. If so, try backing up a bit to see if one of the front sensor clears
+
+  //If front right and rear right, or front left and rear left, then cant rotate right or left. Try backing up a bit to see if the front sensor clears.
+  //If it doesnt or no progress is made, try rotating a bit opposite to which side is blocked - if cant rotate then go forward a bit and then try and rotate.
+
+
+  switch (systemStatus.robotState) {
+    case ROTATING_RIGHT:
+      checkRotatingRight();
+      break;
+    case ROTATING_LEFT:
+      checkRotatingLeft();
+      break;
+    case ROTATING_LEFT_BLOCKED_RIGHT:
+      checkRotatingLeftBlockedRight();
+      break;
+    case ROTATING_RIGHT_BLOCKED_LEFT:
+      checkRightBlockedLeft();
+      break;
+    case ROTATING_FRONT_BLOCKED_BACKING_OUT:
+      checkRotatingFrontBlockedBackingOut();
+      break;
+    case ROTATING_REAR_BLOCKED_GO_FORWARD:
+      checkRotatingRearBlockedGoForward();
+      break;
+  }
+}
+
 bool rotateTo(int16_t directionRequired) {
   // Rotate the car to the direction that is required
   // 0 is straight ahead (no change)
   //-90 is 90 deg to the left
   //+90 is 90 deg to the right
   directionRequired = normalise(directionRequired);
-  // getAccelerometerEuler();
-  // currentDirn = eulerDeg[0];                          // Before we work out which direction to turn, remember what straightahead is
-  // diff = normalise(directionRequired - currentDirn);  //Rotation angle - positive is right, negative is rotate left
-  int16_t currentDirn = getCompassBearing();  // Before we work out which direction to turn, remember what straightahead is
-  int16_t rotate = getRotation(currentDirn, directionRequired);
-  // int16_t startingYaw = yaw;
+  currentDirn = getCompassBearing();  // Before we work out which direction to turn, remember what straightahead is
+  lastDirn = currentDirn;
+  rotate = getRotation(currentDirn, directionRequired);
   if (rotate == 0) return true;
-  long timer = 0;
-  long backTimer = 0;
-  long forwardTimer = 0;
-  int16_t diff = rotate;  //Initial rotation amount and direction
-  bool triedOtherDirn = false;
-  Robot_State nextState = ROTATING;  //This is used to determine the next rotation state after moving forward or back after an obstruction
+  timer = 0;
+  backTimer = 0;
+  forwardTimer = 0;
+  initialRotation = rotate;  //Initial rotation amount and direction
+  triedOtherDirn = false;
+  rotationStuckCnt = 0;
+  nextState = ROTATING;  //This is used to determine the next rotation state after moving forward or back after an obstruction
   //   ROTATING_LEFT,
   // ROTATING_RIGHT,
   // ROTATING_LEFT_BLOCKED_RIGHT, //Tried rotating right but blocked, so going left
@@ -62,16 +260,14 @@ bool rotateTo(int16_t directionRequired) {
   long loopStartTime = millis();
 
   do {
-    //If rotating left and front left or rear right - cant go this way.
-    //If both front - need to reverse a bit first until one of the sensors is freed up, unless rear sensor is set. If so, try backing up a bit to see if one of the front sensor clears
-
-    //If front right and rear right, or front left and rear left, then cant rotate right or left. Try backing up a bit to see if the front sensor clears.
-    //If it doesnt or no progress is made, try rotating a bit opposite to which side is blocked - if cant rotate then go forward a bit and then try and rotate.
-
+    getCombinedProximity();
+    checkRotation();
     if (lastRobotState != systemStatus.robotState) {
       //Update PI log
       sendSystemStatus();
       lastRobotState = systemStatus.robotState;
+      //Changed direction of rotation - reset stuck count
+      rotationStuckCnt = 0;
     }
 
     //Drive motors based on current state
@@ -104,169 +300,20 @@ bool rotateTo(int16_t directionRequired) {
     loopStartTime = millis();
     timer += ROTATE_CHECK_INTERVAL;  // Prevent continuous spinning if something goes wrong
     wdt_reset();
-    currentDirn = getCompassBearing();  // Before we work out which direction to turn, remember what straightahead is
+    currentDirn = getCompassBearing();  // Get straightahead
     rotate = getRotation(currentDirn, directionRequired);
+    if (abs(compass_diff(currentDirn, lastDirn)) < 2) {
+      //We havent rotated this loop - suspect we are stuck
+      rotationStuckCnt++;
+    } else {
+      rotationStuckCnt = 0;
+    }
+    lastDirn = currentDirn; 
     if (leftGround()) {
       driveMotor(STOP, 0, 0);
       sendSystemStatus();
       break;
     }
-    getCombinedProximity();
-    //Check on what obstructions we have based on our current rotation state - need to work out what movement is possible
-    switch (systemStatus.robotState) {
-      case ROTATING_RIGHT:
-        if (checkFrontRightProximity(systemStatus.proximityState) && checkRearLeftProximity(systemStatus.proximityState)) {
-          //If rotating right and front right or rear left - cant go this way round, try the other way
-          systemStatus.robotState = ROTATING_LEFT_BLOCKED_RIGHT;
-        } else if (checkFrontRightProximity(systemStatus.proximityState) && !checkDirectRearOnly(systemStatus.proximityState)) {
-          //If rotating right and blocked front right, but we are clear to the back so can try backing up a little
-          systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
-          nextState = ROTATING_RIGHT;
-          backTimer = 500;
-
-        } else if (checkRearLeftProximity(systemStatus.proximityState) && !checkDirectFrontProximity(systemStatus.proximityState)) {
-          //Only the back is blocked, so go forward a little
-          systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
-          forwardTimer = 500;
-        }
-        break;
-      case ROTATING_LEFT:
-        if (checkFrontLeftProximity(systemStatus.proximityState) && checkRearRightProximity(systemStatus.proximityState)) {
-          //If rotating right and front right or rear left - cant go this way round, try the other way
-          systemStatus.robotState = ROTATING_RIGHT_BLOCKED_LEFT;
-        } else if (checkFrontLeftProximity(systemStatus.proximityState) && !checkDirectRearOnly(systemStatus.proximityState)) {
-          //If rotating right and blocked front right, but we are clear to the back so can try backing up a little
-          systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
-          backTimer = 500;
-          nextState = ROTATING_LEFT;
-        } else if (checkRearRightProximity(systemStatus.proximityState) && !checkDirectFrontProximity(systemStatus.proximityState)) {
-          systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
-          forwardTimer = 500;
-          nextState = ROTATING_LEFT;
-        }
-        break;
-      case ROTATING_LEFT_BLOCKED_RIGHT:
-        if (!checkFrontRightProximity(systemStatus.proximityState) && !checkDirectFrontProximity(systemStatus.proximityState) && checkRearLeftProximity(systemStatus.proximityState)) {
-          //We have cleared the front right issue but not the rear left - go forward a bit and then retry the rotation
-          forwardTimer = 500;
-          nextState = ROTATING_RIGHT;
-          systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
-        } else if (checkFrontRightProximity(systemStatus.proximityState) && !checkDirectRearOnly(systemStatus.proximityState) && !checkRearLeftProximity(systemStatus.proximityState)) {
-          //We have cleared the rear left issue but not the front - back up a bit and then retry
-          backTimer = 500;
-          systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
-          nextState = ROTATING_RIGHT;
-        } else if (checkFrontLeftProximity(systemStatus.proximityState)) {
-          //We cant go round this way either - try going forward or backing out
-          if (!checkDirectRearOnly(systemStatus.proximityState)) {
-            //Clear directly behind - reverse up a bit
-            systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
-            nextState = ROTATING_RIGHT;
-            backTimer = 500;
-          } else if (!checkDirectFrontProximity(systemStatus.proximityState)) {
-            //Clear directly in front - try going forward slightly
-            systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
-            forwardTimer = 500;
-            nextState = ROTATING_RIGHT;
-          } else {
-            // We cant rotate this way either and cant go forward or back....
-          }
-        } else if (checkRearRightProximity(systemStatus.proximityState)) {
-          //We cant go round this way either - try going forward or backing out
-          if (!checkDirectFrontProximity(systemStatus.proximityState)) {
-            //Clear directly in front - try going forward slightly
-            systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
-            nextState = ROTATING_RIGHT;
-            forwardTimer = 500;
-          } else {
-            if (!checkDirectRearOnly(systemStatus.proximityState)) {
-              //Clear directly behind - reverse up a bit
-              systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
-              backTimer = 500;
-              nextState = ROTATING_RIGHT;
-            } else {
-              // ??
-            }
-          }
-        }
-        break;
-      case ROTATING_RIGHT_BLOCKED_LEFT:
-        if (!checkFrontLeftProximity(systemStatus.proximityState) && !checkDirectFrontProximity(systemStatus.proximityState) && checkRearRightProximity(systemStatus.proximityState)) {
-          //We have cleared the front left issue but not the rear right - go forward a bit and then retry the rotation
-          forwardTimer = 500;
-          nextState = ROTATING_LEFT;
-          systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
-        } else if (checkFrontLeftProximity(systemStatus.proximityState) && !checkDirectRearOnly(systemStatus.proximityState) && !checkRearLeftProximity(systemStatus.proximityState)) {
-          //We have cleared the rear left issue but not the front - back up a bit and then retry
-          backTimer = 500;
-          nextState = ROTATING_LEFT;
-          systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
-        } else if (checkFrontRightProximity(systemStatus.proximityState)) {
-          //We cant go round this way either - try going forward or backing out
-          if (!checkDirectRearOnly(systemStatus.proximityState)) {
-            //Clear directly behind - reverse up a bit
-            systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
-            nextState = ROTATING_LEFT;
-          } else if (!checkDirectFrontProximity(systemStatus.proximityState)) {
-            //Clear directly in front - try going forward slightly
-            systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
-            nextState = ROTATING_LEFT;
-          } else {
-            // ??
-          }
-        } else if (checkRearLeftProximity(systemStatus.proximityState)) {
-          //We cant go round this way either - try going forward or backing out
-          if (!checkDirectFrontProximity(systemStatus.proximityState)) {
-            //Clear directly in front - try going forward slightly
-            systemStatus.robotState = ROTATING_REAR_BLOCKED_GO_FORWARD;
-            nextState = ROTATING_LEFT;
-          } else {
-            if (!checkDirectRearOnly(systemStatus.proximityState)) {
-              //Clear directly behind - reverse up a bit
-              systemStatus.robotState = ROTATING_FRONT_BLOCKED_BACKING_OUT;
-              nextState = ROTATING_LEFT;
-              backTimer = 500;
-            } else {
-              // ??
-            }
-          }
-        }
-        break;
-      case ROTATING_FRONT_BLOCKED_BACKING_OUT:
-        if (checkDirectRearOnly(systemStatus.proximityState) || (backTimer <= 0)) {
-          //Can't back up any further - start from the top
-          if (nextState == ROTATING_RIGHT and checkFrontRightProximity(systemStatus.proximityState)) {
-            //Still blocked right - try going left
-            systemStatus.robotState = ROTATING_LEFT_BLOCKED_RIGHT;
-          } else if (nextState == ROTATING_LEFT and checkFrontLeftProximity(systemStatus.proximityState)) {
-            systemStatus.robotState = ROTATING_RIGHT_BLOCKED_LEFT;
-          } else {
-            systemStatus.robotState = nextState;
-          }
-        } else if ((nextState == ROTATING_RIGHT and !checkFrontRightProximity(systemStatus.proximityState)) || (nextState == ROTATING_LEFT and !checkFrontLeftProximity(systemStatus.proximityState))) {
-          //Now clear to the front - resume rotating
-          systemStatus.robotState = nextState;
-        }
-        break;
-
-      case ROTATING_REAR_BLOCKED_GO_FORWARD:
-        if (checkDirectFrontProximity(systemStatus.proximityState) || (forwardTimer <= 0)) {
-          //Can't go forward any further - start from the top
-          if (nextState == ROTATING_RIGHT and checkRearLeftProximity(systemStatus.proximityState)) {
-            //Still blocked - try going left
-            systemStatus.robotState = ROTATING_LEFT_BLOCKED_RIGHT;
-          } else if (nextState == ROTATING_LEFT and checkFrontLeftProximity(systemStatus.proximityState)) {
-            systemStatus.robotState = ROTATING_RIGHT_BLOCKED_LEFT;
-          } else {
-            systemStatus.robotState = nextState;
-          }
-        } else if ((nextState == ROTATING_RIGHT and !checkRearLeftProximity(systemStatus.proximityState)) || (nextState == ROTATING_LEFT and !checkRearRightProximity(systemStatus.proximityState))) {
-          //Now clear to the rear - resume rotating
-          systemStatus.robotState = nextState;
-        }
-        break;
-    }
-
 
     // if (Serial) {
     //   Serial.print("Rotating ");
@@ -280,15 +327,7 @@ bool rotateTo(int16_t directionRequired) {
     //   Serial.println(timer);
     // }
 
-    // if (timer > 500) {
-    //   if (abs(startingYaw - yaw) <= 10) {
-    //     //We must have rotated a complete 360 - reset the gyro
-    //     driveMotor(STOP, 0, 0);
-    //     return false;
-    //   }
-    // }
-    // } while (timer <= 5000 && ((directionRequired > yaw) && ((directionRequired - yaw) < 180)) || ((directionRequired < yaw) && ((directionRequired - yaw) >= 180)));
-  } while (((rotate > 0 && diff > 0) || (rotate < 0 && diff < 0)) && timer < MAX_ROTATE_TIME);
+  } while (((rotate > 0 && initialRotation > 0) || (rotate < 0 && initialRotation < 0)) && timer < MAX_ROTATE_TIME);
   driveMotor(STOP, 0, 0);
   if (timer >= MAX_ROTATE_TIME) {
     return false;  //Failed to make the turn in time

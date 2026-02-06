@@ -120,6 +120,22 @@ float normalise_rad(float dirn) {
   return dirn;
 }
 
+//Calculate the difference between two compass angles
+int16_t compass_diff(int16_t a, int16_t b) {
+  int16_t diff = a - b;
+
+  // Wrap into 0–359 range
+  diff %= 360;
+  if (diff < 0)
+    diff += 360;
+
+  // Convert to minimal 0–180 difference
+  if (diff > 180)
+    diff = 360 - diff;
+
+  return diff;
+}
+
 void readAttitude(int8_t *pitch, int8_t *roll) {
   Wire.beginTransmission(CMPS12_ADDRESS);  //starts communication with CMPS12
   Wire.write(PITCH);                       //Sends the register we wish to start reading from
@@ -143,13 +159,13 @@ bool rollingOrPitching() {
   uint8_t currentRoll = 0;
   uint8_t currentPitch = 0;
   readAttitude(&currentPitch, &currentRoll);
-  if (Serial && (abs(currentRoll) >= 8 || abs(currentPitch) >= 8)) {
-    Serial.print("Rolling: ");
-    Serial.print(currentRoll);
-    Serial.print(" pitch: ");
-    Serial.println(currentPitch);
-  }
-  return (abs(currentRoll) >= 8 || abs(currentPitch) >= 8);
+  // if (Serial && (abs(currentRoll) >= 10 || abs(currentPitch) >= 10)) {
+  //   Serial.print("Rolling: ");
+  //   Serial.print(currentRoll);
+  //   Serial.print(" pitch: ");
+  //   Serial.println(currentPitch);
+  // }
+  return (abs(currentRoll) >= 10 || abs(currentPitch) >= 10);
 }
 
 

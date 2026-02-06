@@ -11,8 +11,8 @@
 struct Arc {
   uint8_t startIndex;  //0 is 90 right, 180 is 90 left
   uint8_t endIndex;
-  uint16_t centreDirection;
-  uint16_t width;         //of arc
+  uint8_t centreDirection;
+  uint8_t width;         //of arc
   uint16_t avgDistance;  //distance
 };
 
@@ -143,8 +143,8 @@ int findObjectsInSweep(uint16_t arr[], int size, Arc arcs[], int maxArcs) {
       i++;
     }
 
-    // Only consider arcs with width >= 10 degrees
-    if (count >= 10) {
+    // Only consider arcs with width >= 15 degrees
+    if (count >= 15) {
       Arc arc;
       arc.startIndex = start;
       arc.endIndex = i - 1;
@@ -194,16 +194,13 @@ SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t* bestDire
   }
   if (arcs[furthestObjectIndex].avgDistance <= MIN_DISTANCE_AHEAD) {
     //No point going any further, turn around and do another sweep
-
     //Check if any objects are within minimum safe distance, if so need to back out rather than rotate
-    // if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
-    //   retStatus = CANNOT_TURN;
-    // } else {
-    retStatus = BLOCKED_AHEAD;
-    // }
+    if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
+      retStatus = CANNOT_TURN;
+    } else {
+      retStatus = BLOCKED_AHEAD;
+    }
   }
   *bestDirectionIndex = furthestObjectIndex;
   return retStatus;
 }
-
-

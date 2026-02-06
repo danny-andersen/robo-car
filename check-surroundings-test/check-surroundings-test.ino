@@ -9,7 +9,7 @@ bool leftGround() {
 }
 
 #include "distance-sensor.h"
-
+  
 uint16_t furthestDistance = 0;
 uint16_t lastDistanceToObstacle = 10000;
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg

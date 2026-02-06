@@ -1,6 +1,6 @@
 #define LOOP_TIME 100
 #define NUMBER_OF_ANGLES_IN_SWEEP 180  //Number of samples to take in a sweep
-#define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
+#define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 12
 #define MIN_DISTANCE_TO_MOVE 20  //Dont get any closer than this
 #define MIN_DISTANCE_AHEAD 40  //Do point moving ahead if this is the furthest object
 #define MIN_DISTANCE_TO_TURN 10  //If we have less than this around then we can't rotate

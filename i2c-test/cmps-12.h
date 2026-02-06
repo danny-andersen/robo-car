@@ -27,10 +27,10 @@ bool compass_init() {
   uint8_t status = Wire.endTransmission();
   if (status) {
     //Failed
-    if (Serial) {
-      Serial.print("Compass not present - write returned: ");
-      Serial.println(status);
-    }
+    // if (Serial) {
+    //   Serial.print(F("Compass not present - write returned: "));
+    //   Serial.println(status);
+    // }
   } else {
     retStatus = true;
   }
@@ -118,6 +118,22 @@ int16_t normalise(int16_t dirn) {
 float normalise_rad(float dirn) {
   dirn = fmod(dirn, TWO_PI);
   return dirn;
+}
+
+//Calculate the difference between two compass angles
+int16_t compass_diff(int16_t a, int16_t b) {
+  int16_t diff = a - b;
+
+  // Wrap into 0–359 range
+  diff %= 360;
+  if (diff < 0)
+    diff += 360;
+
+  // Convert to minimal 0–180 difference
+  if (diff > 180)
+    diff = 360 - diff;
+
+  return diff;
 }
 
 void readAttitude(int8_t *pitch, int8_t *roll) {

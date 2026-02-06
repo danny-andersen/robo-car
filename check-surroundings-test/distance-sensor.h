@@ -143,8 +143,8 @@ int findObjectsInSweep(uint16_t arr[], int size, Arc arcs[], int maxArcs) {
       i++;
     }
 
-    // Only consider arcs with width >= 10 degrees
-    if (count >= 10) {
+    // Only consider arcs with width >= 15 degrees
+    if (count >= 15) {
       Arc arc;
       arc.startIndex = start;
       arc.endIndex = i - 1;
