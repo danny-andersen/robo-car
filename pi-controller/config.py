@@ -18,7 +18,7 @@ MOTOR_STARTING_CMD = 0x05
 MOTOR_STOPPING_CMD = 0x06
 REQ_STATUS_CMD = 0x07
 SEND_SYSTEM_STATUS_CMD = 0x08
-
+PI_STATUS_RESPONSE = 0x80 | REQ_STATUS_CMD  # Response to status request
 
 # Proximity states (bitmask)
 LIDAR_PROXIMITY_NONE = 0x00
@@ -60,18 +60,20 @@ PROXIMITY_ANGLE_REAR_RIGHT_END = 130
 # -----------------------------
 # Struct definitions
 # -----------------------------
-ObstacleData_struct = struct.Struct("<bHHHB")  # obstacleNum, relDir, width, avgDistance, crc
-ObstaclesCmd_struct = struct.Struct("<hBB")  # currentCompassDirn, numToSend, crc
+ObstacleData_struct = struct.Struct("<bHHH")  # obstacleNum, relDir, width, avgDistance
+ObstaclesCmd_struct = struct.Struct("<hB")  # currentCompassDirn, numToSend
 SystemStatusStruct = struct.Struct(
-    "<LhhHBBhbbBBBBBB"
+    "<LhhHBBhbbBBBBB"
 )  # timestamp, humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, errorField, CRC
 PiStatusStruct = struct.Struct("<BBH")  # systemReady, lidarProximity, directionToDrive
 
 
 MAX_OBS = 20
 
-pi = None  # To be initialized in i2c_init() in i2c_slave.py
-
+# UART packet format:
+# [START_BYTE][CMD][PAYLOAD...][CRC16]
+START_BYTE = 0xAA
+GPIO_SERIAL_PORT = "/dev/ttyS0"  # GPIO serial port on Raspberry Pi
 
 # -----------------------------
 # State variables
@@ -136,24 +138,24 @@ ERROR_FIELD_NAMES = [
   "I2C_DATA_NACK",
   "I2C_ERROR",
   "I2C_TIMEOUT", #I2C bus timeout
-  "I2C_PI_DATA_TOO_LONG", #Note: Following 5 fields match I2C error nums + 5
-  "I2C_PI_ADDR_NACK",
-  "I2C_PI_DATA_NACK",
-  "I2C_PI_ERROR",
-  "I2C_PI_TIMEOUT", #I2C bus timeout
   "I2C_RX_TIMEOUT",
-  "I2C_PI_CRC_ERROR",
   "I2C_NANO_CRC_ERROR",
-  "I2C_EXTRA_BYTES",
-  "I2C_PI_RETRIED",
   "I2C_NANO_RETRIED",
+  "I2C_EXTRA_BYTES", #Received extra bytes when not expecting them (in flush())
+  "PI_DATA_LEN_ERROR", #Note: Following 5 fields match I2C error nums + 5
+  "PI_SEQ_ERROR",
+  "PI_MSG_TYPE_ERROR",
+  "PI_HEADER_LEN_ERR",
+  "PI_ERROR",
+  "PI_TIMEOUT", #Msg timeout
+  "PI_CRC_ERROR",
+  "PI_RETRIED",
 ]
 
 lastBootTime = 0
 
 # LIDAR
-SERIAL_PORT = "/dev/ttyS0"  # GPIO serial port on Raspberry Pi
-
+USB_SERIAL_PORT = "/dev/ttyUSB0"  # USB serial port for LIDAR data
 
 # SLAM/map parameters
 MAP_SIZE_PIXELS = 800  # Occupancy grid width/height
@@ -162,8 +164,12 @@ MAP_SIZE_METERS = 16.0  # Map width/height in meters
 
 def printableProximity(proxStatus):
     parts = []
+    if proxStatus & TOP_FRONT_LEFT_PROX_SET:
+        parts.append("Top Front Left")
     if proxStatus & FRONT_LEFT_PROX_SET:
         parts.append("Front Left")
+    if proxStatus & TOP_FRONT_RIGHT_PROX_SET:
+        parts.append("Top Front Right")
     if proxStatus & FRONT_RIGHT_PROX_SET:
         parts.append("Front Right")
     if proxStatus & REAR_LEFT_PROX_SET:

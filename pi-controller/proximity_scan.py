@@ -14,7 +14,7 @@ def processProximityScan(scan, robotState):
     scan_filtered = median_filter(scan)
     scan_filtered = temporal_smooth(scan_filtered)
 
-    config.piStatus["lidarProximity"] = 0 # Clear previous proximity status
+    newProximityStatus = 0
     for angle in range(360):
         distance = scan_filtered[angle]
         if distance == 0:
@@ -54,9 +54,9 @@ def processProximityScan(scan, robotState):
             scan_filtered[(angle-1)%360] <= threshold and
             scan_filtered[(angle+1)%360] <= threshold):
             # treat as real obstacle
-            config.piStatus["lidarProximity"] |= bitSet 
+            newProximityStatus |= bitSet 
             
-            
+    config.piStatus["lidarProximity"] = newProximityStatus    
     # if (config.piStatus["lidarProximity"] != 0):
     #     print(f"LIDAR Proximity Status: {hex(config.piStatus["lidarProximity"])} {config.printableProximity(config.piStatus["lidarProximity"])}")
 

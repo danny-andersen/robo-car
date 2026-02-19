@@ -1,8 +1,8 @@
 // #include "compass.h"
 #include <avr/wdt.h>
 #include "Wire.h"
-#include "cmps-12.h"
 #include "robo-car.h"
+#include "cmps-12.h"
 bool leftGround() {
   return false;
 }
@@ -11,8 +11,8 @@ bool leftGround() {
 
 #include "i2c-nano.h"
 #include "i2c-pi.h"
+#include "proximity.h"
 #include "status.h"
-
 
 bool compassReady = false;
 
@@ -30,8 +30,8 @@ uint8_t furthestObjectIndex = 0;
 
 
 void setup() {
-  Serial.begin(9600);
-  Serial.println("Starting...");
+  Serial.begin(115200);
+  D_println("Starting...");
 
   statusInit();
   // Start I²C bus
@@ -44,22 +44,22 @@ void setup() {
   distanceSensorInit();
 
   motor_Init();
-  Serial.print("Sensors init: ");
-  Serial.print("Compass: ");
-  Serial.println(compassReady);
+  // D_print("Sensors init: ");
+  // D_print("Compass: ");
+  // D_println(compassReady);
 }
 
 void printNanoStatus() {
-  Serial.print("Nano Proximity: ");
-  Serial.print(nanoStatus.proximityState);
-  Serial.print(" left: ");
-  Serial.print(nanoStatus.currentLeftSpeed);
-  Serial.print(" right: ");
-  Serial.print(nanoStatus.currentRightSpeed);
-  Serial.print(" avg: ");
-  Serial.print(nanoStatus.averageSpeed);
-  Serial.print(" distance: ");
-  Serial.println(nanoStatus.distanceTravelled);
+  D_print("Nano Proximity: ");
+  D_print(nanoStatus.proximityState);
+  D_print(" left: ");
+  D_print(nanoStatus.currentLeftSpeed);
+  D_print(" right: ");
+  D_print(nanoStatus.currentRightSpeed);
+  D_print(" avg: ");
+  D_print(nanoStatus.averageSpeed);
+  D_print(" distance: ");
+  D_println(nanoStatus.distanceTravelled);
 }
 
 
@@ -68,158 +68,146 @@ void loop() {
   readAttitude(&systemStatus.pitch, &systemStatus.roll);
   systemStatus.batteryVoltage = getBatteryVoltageInt();
   setStatusLed(systemStatus.batteryVoltage / 100.0);
-  Serial.print("Heading: ");
-  Serial.print(systemStatus.currentBearing);
-  Serial.print(" Pitch: ");
-  Serial.print(systemStatus.pitch);
-  Serial.print(" Roll: ");
-  Serial.print(systemStatus.roll);
-  Serial.print(" Voltage: ");
-  Serial.print(systemStatus.batteryVoltage / 100.0);
+  D_print("Heading: ");
+  D_print(systemStatus.currentBearing);
+  D_print(" Pitch: ");
+  D_print(systemStatus.pitch);
+  D_print(" Roll: ");
+  D_print(systemStatus.roll);
+  D_print(" Voltage: ");
+  D_print(systemStatus.batteryVoltage / 100.0);
 
   if (getTempHumidityInt(&systemStatus.tempC, &systemStatus.humidity)) {
-    Serial.print(" RH = ");
-    Serial.print(systemStatus.humidity / 10.0);
-    Serial.print("%, T = ");
-    Serial.print(systemStatus.tempC / 10.0);
-    Serial.println(" C");
+    D_print(" RH = ");
+    D_print(systemStatus.humidity / 10.0);
+    D_print("%, T = ");
+    D_print(systemStatus.tempC / 10.0);
+    D_println(" C");
   } else {
-    Serial.println();
+    D_println();
   }
 
-  nanoOnBus = getNanoStatusCmd();
-  if (nanoOnBus) {
-    Serial.print("Failed to send to Nano: ");
-    Serial.println(Serial.println(systemStatus.errorField));
+  nanoCommsError = getNanoStatusCmd();
+  if (nanoCommsError) {
+    D_print("Failed to send to Nano: ");
+    D_println(systemStatus.errorField);
   } else {
     printNanoStatus();
   }
 
-  // nanoOnBus = getProximityState();
-  if (nanoOnBus) {
-    Serial.print("Failed to send to Nano: ");
-    Serial.println(nanoOnBus);
+  // nanoCommsError = getProximityState();
+  if (nanoCommsError) {
+    D_print("Failed to send to Nano: ");
+    D_println(nanoCommsError);
   } else if (systemStatus.proximityState > 0) {
     if (checkFrontProximity(systemStatus.proximityState)) {
-      Serial.print("Nano FRONT ");
-      if (checkFrontRightProximity(systemStatus.proximityState)) Serial.print("RIGHT ");
-      if (checkFrontLeftProximity(systemStatus.proximityState)) Serial.print("LEFT ");
+      D_print("Nano FRONT ");
+      if (checkFrontRightProximity(systemStatus.proximityState)) D_print("RIGHT ");
+      if (checkFrontLeftProximity(systemStatus.proximityState)) D_print("LEFT ");
     }
     if (checkRearProximity(systemStatus.proximityState)) {
-      Serial.print("REAR ");
-      if (checkRearRightProximity(systemStatus.proximityState)) Serial.print("RIGHT ");
-      if (checkRearLeftProximity(systemStatus.proximityState)) Serial.print("LEFT ");
+      D_print("REAR ");
+      if (checkRearRightProximity(systemStatus.proximityState)) D_print("RIGHT ");
+      if (checkRearLeftProximity(systemStatus.proximityState)) D_print("LEFT ");
     }
-    Serial.println();
+    D_println();
   }
 
   //Start up motor - I2C is susceptible to noise on the bus
   // driveMotor(FORWARD, 50, 50);
   sendStartMotorCmd();
-  Serial.print("Start motor: ");
+  D_print("Start motor: ");
   printNanoStatus();
 
-  // piOnBus = getPiStatusCmd();
-  // if (piOnBus) {
-  //   //Failed to get a response
-  //   Serial.print("Failed to talk to PI: ");
-  //   Serial.println(systemStatus.errorField);
-  // } else {
-  //   Serial.print("PI Ready: ");
-  //   Serial.print(piStatus.ready);
-  //   Serial.print(" Lidar: ");
-  //   Serial.print(piStatus.lidarStatus);
-  //   Serial.print(" Dirn: ");
-  //   Serial.println(piStatus.directionToDrive);
-  //   if (piStatus.lidarStatus > 0) {
-  //     if (checkFrontProximity(piStatus.lidarStatus)) {
-  //       Serial.print("LIDAR FRONT ");
-  //       if (checkFrontRightProximity(piStatus.lidarStatus)) Serial.print("RIGHT ");
-  //       if (checkFrontLeftProximity(piStatus.lidarStatus)) Serial.print("LEFT ");
-  //     }
-  //     if (checkRearProximity(piStatus.lidarStatus)) {
-  //       Serial.print("LIDAR REAR ");
-  //       if (checkRearRightProximity(piStatus.lidarStatus)) Serial.print("RIGHT ");
-  //       if (checkRearLeftProximity(piStatus.lidarStatus)) Serial.print("LEFT ");
-  //     }
-  //     Serial.println();
-  //   }
-  // }
-
-  // if (!piOnBus) {
-  //   //Pi is available
-  //   //OR the lidar proximity status in with the IR proximity sensors
-  //   systemStatus.proximityState |= piStatus.lidarStatus;
-  // }
-
-  // Serial.print("Combined Proximity: ");
-  // if (checkFrontProximity(systemStatus.proximityState)) {
-  //   Serial.print("FRONT ");
-  //   if (checkFrontRightProximity(systemStatus.proximityState)) Serial.print("RIGHT ");
-  //   if (checkFrontLeftProximity(systemStatus.proximityState)) Serial.print("LEFT ");
-  // }
-  // if (checkRearProximity(systemStatus.proximityState)) {
-  //   Serial.print("REAR ");
-  //   if (checkRearRightProximity(systemStatus.proximityState)) Serial.print("RIGHT ");
-  //   if (checkRearLeftProximity(systemStatus.proximityState)) Serial.print("LEFT ");
-  // }
-  // Serial.println();
-
-  // // Send combined status to PI
-  // int8_t piOnBus = sendSystemStatus();
-  // if (piOnBus) {
-  //   Serial.print("Failed to send status to PI: ");
-  //   Serial.println(piOnBus);
-  // }
-
-  // sweep(distances);
-  // // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
-  // for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
-  //   arcs[i].avgDistance = 0;
-  // }
-  // for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
-  //   arcs[i].avgDistance = 0;
-  // }
-  // uint8_t numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
-  // // uint8_t numObjects = 5;
-  // for (int i = 0; i < numObjects; i++) {
-  //   Serial.print("Rel Dirn: ");
-  //   Serial.print(arcs[i].centreDirection);
-  //   Serial.print(" Width: ");
-  //   Serial.print(arcs[i].width);
-  //   Serial.print(" Dist: ");
-  //   Serial.println(arcs[i].avgDistance);
-  // }
-  // //Send Obstacles to PI
-  // int8_t obsStatus = sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
-  // if (!obsStatus) {
-  //   Serial.print("Sent all ");
-  //   Serial.print(numObjects);
-  //   Serial.println(" obs");
-
-  // } else {
-  //   Serial.print("Failed to send all obs: ");
-  //   Serial.println(obsStatus);
-  // }
-  for (int i = 0; i < 5; i++) {
-    // piOnBus = getPiStatusCmd();
-    // if (piOnBus) {
-    //   //Failed to get a response
-    //   Serial.print("Failed PI status: ");
-    //   Serial.println(systemStatus.errorField);
-    // }
-    systemStatus.pitch = (i+1)*10;
-    piOnBus = sendSystemStatus();
-    if (piOnBus) {
-      Serial.print("Failed send status to PI: ");
-      Serial.println(piOnBus);
+  piCommsError = getPiStatusCmd();
+  if (piCommsError) {
+    //Failed to get a response
+    D_print("Failed to talk to PI: ");
+    D_print(piCommsError);
+    D_print(" Errorfield: ");
+    D_println(systemStatus.errorField);
+  } else {
+    D_print("PI Ready: ");
+    D_print(piStatus.ready);
+    D_print(" Lidar: ");
+    D_print(piStatus.lidarStatus);
+    D_print(" Dirn: ");
+    D_println(piStatus.directionToDrive);
+    if (piStatus.lidarStatus > 0) {
+      if (checkFrontProximity(piStatus.lidarStatus)) {
+        D_print("LIDAR FRONT ");
+        if (checkFrontRightProximity(piStatus.lidarStatus)) D_print("RIGHT ");
+        if (checkFrontLeftProximity(piStatus.lidarStatus)) D_print("LEFT ");
+      }
+      if (checkRearProximity(piStatus.lidarStatus)) {
+        D_print("LIDAR REAR ");
+        if (checkRearRightProximity(piStatus.lidarStatus)) D_print("RIGHT ");
+        if (checkRearLeftProximity(piStatus.lidarStatus)) D_print("LEFT ");
+      }
+      D_println();
     }
   }
-  // driveMotor(STOP, 50, 50);
-  sendStopMotorCmd();
-  Serial.print("Stop motor: ");
-  printNanoStatus();
-  // piOnBus = sendSystemStatus();
 
-  delay(1000);
+  if (!piCommsError) {
+    //Pi is available
+    //OR the lidar proximity status in with the IR proximity sensors
+    systemStatus.proximityState |= piStatus.lidarStatus;
+  }
+
+  D_print("Combined Proximity: ");
+  if (checkFrontProximity(systemStatus.proximityState)) {
+    D_print("FRONT ");
+    if (checkFrontRightProximity(systemStatus.proximityState)) D_print("RIGHT ");
+    if (checkFrontLeftProximity(systemStatus.proximityState)) D_print("LEFT ");
+  }
+  if (checkRearProximity(systemStatus.proximityState)) {
+    D_print("REAR ");
+    if (checkRearRightProximity(systemStatus.proximityState)) D_print("RIGHT ");
+    if (checkRearLeftProximity(systemStatus.proximityState)) D_print("LEFT ");
+  }
+  D_println();
+
+  // Send combined status to PI
+  int8_t piCommsError = sendSystemStatus();
+  if (piCommsError) {
+    D_print("Failed to send status to PI: ");
+    D_println(piCommsError);
+  }
+
+  sweep(distances);
+  // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
+  for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
+    arcs[i].avgDistance = 0;
+  }
+  for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
+    arcs[i].avgDistance = 0;
+  }
+  uint8_t numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
+  // uint8_t numObjects = 5;
+  for (int i = 0; i < numObjects; i++) {
+    D_print("Rel Dirn: ");
+    D_print(arcs[i].centreDirection);
+    D_print(" Width: ");
+    D_print(arcs[i].width);
+    D_print(" Dist: ");
+    D_println(arcs[i].avgDistance);
+  }
+  //Send Obstacles to PI
+  int8_t obsStatus = sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
+  if (!obsStatus) {
+    D_print("Sent all ");
+    D_print(numObjects);
+    D_println(" obs");
+
+  } else {
+    D_print("Failed to send all obs: ");
+    D_println(obsStatus);
+  }
+  driveMotor(STOP, 50, 50);
+  sendStopMotorCmd();
+  D_print("Stop motor: ");
+  printNanoStatus();
+  piCommsError = sendSystemStatus();
+
+  delay(30000);
 }

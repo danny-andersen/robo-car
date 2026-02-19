@@ -9,7 +9,7 @@ import config
 # obstaclesCmd, obstacles, systemStatus, piStatus assumed defined above
 
 # --- Internal snapshot of last-seen values ---
-_last_snapshot = { "flat_no_obstacles": None }
+_last_snapshot = { "flat": None }
 
 # --- Utility: flatten all values into a single ordered dict ---
 def _flatten_state():
@@ -61,6 +61,9 @@ def _flatten_state():
 def _flatten_state_no_obstacles(): 
     """Used only for change detection.""" 
     flat = {} 
+    # for k, v in config.obstaclesCmd.items():
+    #     flat[f"obstaclesCmd.{k}"] = v
+
     # systemStatus 
     for k, v in config.systemStatus.items():
         if k == "robotState": 
@@ -100,9 +103,9 @@ def record_status_change():
     global _last_snapshot
 
     full_flat = _flatten_state()
-    flat_no_obs = _flatten_state_no_obstacles()
+    # flat_no_obs = _flatten_state_no_obstacles()
     
-    changed = _detect_changes(_last_snapshot["flat_no_obstacles"], flat_no_obs)
+    changed = _detect_changes(_last_snapshot["flat"], full_flat)
     # changed = full_flat
     
     if any(changed.values()):
@@ -120,7 +123,7 @@ def record_status_change():
         write_html(full_flat, full_changed)
 
     # Update snapshot
-    _last_snapshot["flat_no_obstacles"] = deepcopy(flat_no_obs)
+    _last_snapshot["flat"] = deepcopy(full_flat)
 
 # --- CSV writer ---
 def write_csv(flat):

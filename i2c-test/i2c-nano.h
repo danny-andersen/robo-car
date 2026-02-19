@@ -9,6 +9,7 @@
 #define MOTOR_STOPPING_CMD 0x06          //Motor is stopping
 #define REQ_STATUS_CMD 0x07              //Return proximity status, distance travelled, current speed
 #define SEND_SYSTEM_STATUS_CMD 0x08      //Sends system status to PI
+#define PI_STATUS_RESPONSE 0x87      //PI system status response
 
 //Data definitions
 #define FRONT_LEFT_PROX_BIT 0
@@ -29,17 +30,7 @@
 
 #define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
 
-
-struct StatusStruct {
-  uint8_t proximityState;      //Status of proximity sensors
-  uint8_t currentLeftSpeed;    //Current speed of left wheel in cm/s
-  uint8_t currentRightSpeed;   //Current speed of right wheel in cm/s
-  uint8_t averageSpeed;        //Avg speed of current drive in cm/s
-  uint16_t distanceTravelled;  //Distance travelled since motored started in cm (average of left and right)
-  uint8_t checksum;
-};
-
-StatusStruct nanoStatus;
+#define I2C_RETRY_CNT 2     //Number of times to try to send a command to the Nano or the PI
 
 uint8_t crc8(const uint8_t *data, size_t len) {
     uint8_t crc = 0xFF;        // initial value
@@ -55,6 +46,120 @@ uint8_t crc8(const uint8_t *data, size_t len) {
         }
     }
     return crc;
+}
+
+bool waitForResponse(uint8_t noOfBytes) {
+  unsigned long waitingTime = 0;
+  while (Wire.available() < noOfBytes && waitingTime < 100) {
+    //Wait for response;
+    delay(10);
+    waitingTime += 10;
+  }
+  if (Wire.available() != noOfBytes) {
+    systemStatus.errorField = I2C_RX_TIMEOUT;
+    return false;
+  } else {
+    return true;
+  }
+}
+
+void flushBus() {
+  //Read any bytes still in the buffer
+  if (Wire.available() > 0) {
+    // if (Serial) {
+    //   D_print("Still have bytes to read?? : ");
+    //   D_println(Wire.available());
+    // D_println();
+    // }
+    while (Wire.available() > 0) Wire.read();
+    systemStatus.errorField = I2C_EXTRA_BYTES;
+  }
+}
+
+int8_t rxNanoStatus() {
+  Wire.requestFrom(UNO_PERIPHERAL_ADDR, sizeof(StatusStruct));
+  if (waitForResponse(sizeof(StatusStruct))) {
+    Wire.readBytes((byte *)&rdstatus, sizeof(StatusStruct));
+    uint8_t calc = crc8((uint8_t *)&rdstatus, sizeof(StatusStruct) - 1);
+    if (calc != rdstatus.checksum) {
+      // BAD PACKET
+      systemStatus.errorField = I2C_NANO_CRC_ERROR;
+      return 1;
+    } else {
+      nanoStatus = rdstatus;
+      //Copy to system status to send to PI
+      systemStatus.proximityState = nanoStatus.proximityState | piStatus.lidarStatus;  //OR in the current Lidar status with the Proximity sensors
+      systemStatus.rightWheelSpeed = nanoStatus.currentRightSpeed;
+      systemStatus.leftWheelSpeed = nanoStatus.currentLeftSpeed;
+      systemStatus.averageSpeed = nanoStatus.averageSpeed;
+      systemStatus.distanceTravelled = nanoStatus.distanceTravelled;
+      //   D_print("Rx proximity state: ");
+      //   D_println(systemStatus.proximityState);  // print the character
+      //   D_print("Front Left: ");
+      //   D_print((systemStatus.proximityState >> FRONT_LEFT_PROX_BIT) & 0x01);
+      //   D_print(" Front Right: ");
+      //   D_print((systemStatus.proximityState >> FRONT_RIGHT_PROX_BIT) & 0x01);
+      //   D_print(" Rear Left: ");
+      //   D_print((systemStatus.proximityState >> REAR_LEFT_PROX_BIT) & 0x01);
+      //   D_print(" Rear Right: ");
+      //   D_print((systemStatus.proximityState >> REAR_RIGHT_PROX_BIT) & 0x01);
+      //   D_print(" Top Front Left: ");
+      //   D_print((systemStatus.proximityState >> TOP_FRONT_LEFT_PROX_BIT) & 0x01);
+      //   D_print(" Top Front RIGHT: ");
+      //   D_println((systemStatus.proximityState >> TOP_FRONT_RIGHT_PROX_BIT) & 0x01);
+      // }
+    }
+    nanoCommsError = 0;
+  } else {
+    nanoCommsError = 1;
+  }
+  return nanoCommsError;
+}
+
+int8_t sendNanoCmd(uint8_t cmd) {
+  flushBus();
+  uint8_t retryCnt = 0;
+  bool reqFailed = false;
+  do {
+    reqFailed = false;
+    Wire.beginTransmission(UNO_PERIPHERAL_ADDR);
+    Wire.write(cmd);
+    nanoCommsError = Wire.endTransmission();
+    if (!nanoCommsError) {
+      nanoCommsError = rxNanoStatus();
+    } else {
+      reqFailed = true;
+      systemStatus.errorField = nanoCommsError;
+      if (nanoCommsError == 5) {
+        //Reset timeout
+        Wire.clearWireTimeoutFlag();
+      }
+    }
+  } while (nanoCommsError && retryCnt++ < I2C_RETRY_CNT);
+
+  if (nanoCommsError) {
+    if (reqFailed) {
+      systemStatus.errorField = nanoCommsError;
+    } else {
+      //errorfield set by read
+    }
+  } else if (retryCnt > 1) {
+    systemStatus.errorField = I2C_NANO_RETRIED;
+  }
+  return nanoCommsError;
+}
+
+int8_t sendStartMotorCmd() {
+  //Send command to peripheral nano that the drive motors are starting
+  return sendNanoCmd(MOTOR_STARTING_CMD);
+}
+
+int8_t sendStopMotorCmd() {
+  return sendNanoCmd(MOTOR_STOPPING_CMD);
+}
+
+int8_t getNanoStatusCmd() {
+  return sendNanoCmd(REQ_STATUS_CMD);
 }
 
 

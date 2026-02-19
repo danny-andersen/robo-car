@@ -8,6 +8,7 @@
 #include "cmps-12.h"
 #include "i2c-nano.h"
 #include "i2c-pi.h"
+#include "proximity.h"
 #include "motor-driver.h"
 #include "movement.h"
 #include "status.h"
@@ -42,6 +43,8 @@ void updateStatus() {
 }
 
 void setup() {
+  Serial.begin(115200);
+  D_println("Starting...");
   // Serial.begin(9600);
   systemStatus.robotState = INIT;
   groundTrackingInit();
@@ -58,9 +61,9 @@ void setup() {
   //Wait until nano and pi peripherals are ready
   do {
     getCombinedProximity();
-    // Serial.println(piOnBus);
+    D_println(piCommsError);
     delay(100);
-  } while (piOnBus || nanoOnBus);
+  } while (piCommsError || nanoCommsError);
   delay(1000);
   systemStatus.currentBearing = getCompassBearing();
   //Send init status to PI for logging

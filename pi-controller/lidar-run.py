@@ -5,7 +5,7 @@ import threading
 import numpy as np
 
 import config
-from i2c_slave import i2c_init, msg_process_thread
+from uart_slave import msg_process_thread, uart_rx_thread
 from ld19_reader import LD19Reader
 from icp_slam_scan_to_map import ICP_SLAM
 from proximity_scan import processProximityScan
@@ -41,14 +41,16 @@ def process_lidar(current_bearing, robotState, slam, reader):
     
 if __name__ == '__main__':
     slam = ICP_SLAM(map_size_m=16.0, resolution=0.02)
-    reader = LD19Reader(config.SERIAL_PORT)
+    reader = LD19Reader(config.USB_SERIAL_PORT)
     reader.start()
 
     processing_thread = threading.Thread( target=msg_process_thread, daemon=True ) 
     processing_thread.start()    
+    uart_thread = threading.Thread( target=uart_rx_thread, daemon=True ) 
+    uart_thread.start()    
     
-    eventHandler = i2c_init()
-    
+    config.piStatus["systemReady"] = 1
+
     interval = 0.050 # 50 ms 
     next_run = time.perf_counter()
     try:
@@ -65,6 +67,4 @@ if __name__ == '__main__':
         pass
 
     finally:
-        eventHandler.cancel()
-        config.pi.stop()
-
+        reader.stop()
