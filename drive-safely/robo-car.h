@@ -119,6 +119,15 @@ struct StatusStruct {
   uint8_t checksum;
 };
 
+// Struct to hold arc info, which represent objects found in the forward field of view
+struct Arc {
+  uint8_t startIndex;  //0 is 90 right, 180 is 90 left
+  uint8_t endIndex;
+  uint8_t centreDirection;
+  uint8_t width;         //of arc
+  uint16_t avgDistance;  //distance
+};
+
 StatusStruct nanoStatus;
 int8_t nanoCommsError = 1;  //0 means up and on the bus - anything else is an error
 
@@ -129,5 +138,9 @@ ObstacleData obstacle;
 StatusStruct rdstatus;
 PiStatusStruct piStatus, rdpiStatus;
 SystemStatusStruct systemStatus;
+
+uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
+Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];       // up to 20 arcs
+uint8_t furthestObjectIndex = 0;
 
 #endif

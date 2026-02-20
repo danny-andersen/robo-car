@@ -19,28 +19,13 @@ float currentDirectionRad = 0;  //This is the straightahead direction in Radians
 Drive_State currentDriveState = STOPPED;
 
 uint16_t furthestDistance = 0;
-uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
-Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];       // up to 20 arcs
-uint8_t furthestObjectIndex = 0;
 
 bool accelerometerReady = false;
 bool compassReady = false;
 bool drivingForward = false;  //Set to true when driving forward
 
-float batteryVoltage = 0.0;
-
 unsigned long statusTimer = 0;
 long lastLoopTime = 0;  //Last time that we went through a loop
-
-void updateStatus() {
-  batteryVoltage = getBatteryVoltage();
-  setStatusLed(batteryVoltage);
-  systemStatus.batteryVoltage = int((batteryVoltage * 100) + 0.5);  //Save as an int but maintain precision
-  getTempHumidityInt(&systemStatus.tempC, &systemStatus.humidity);
-  //Send status to PI
-  sendSystemStatus();
-  lastRobotState = systemStatus.robotState;
-}
 
 void setup() {
   Serial.begin(115200);

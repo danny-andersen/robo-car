@@ -10,15 +10,6 @@
 #define SERVO_CENTRE 90               //Positioned straight forward (0 is full right, 180 is full left)
 #define MAX_DISTANCE_CAN_MEASURE 150  //Anything above this distance is suspect
 
-// Struct to hold arc info, which represent objects found in the forward field of view
-struct Arc {
-  uint8_t startIndex;  //0 is 90 right, 180 is 90 left
-  uint8_t endIndex;
-  uint8_t centreDirection;
-  uint8_t width;         //of arc
-  uint16_t avgDistance;  //distance
-};
-
 Servo servo;
 int servoPosition;
 

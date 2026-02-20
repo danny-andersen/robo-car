@@ -14,6 +14,7 @@ CRGB leds[NUM_LEDS];
 
 SHTC3 mySHTC3;
 
+float batteryVoltage = 0.0;
 
 void statusInit() {
   pinMode(VOL_MEASURE_PIN, INPUT);
@@ -68,6 +69,16 @@ bool getTempHumidityInt(int16_t *tempC, int16_t *humidity) {
     return true;
   }
   return false;
+}
+
+void updateStatus() {
+  batteryVoltage = getBatteryVoltage();
+  setStatusLed(batteryVoltage);
+  systemStatus.batteryVoltage = int((batteryVoltage * 100) + 0.5);  //Save as an int but maintain precision
+  getTempHumidityInt(&systemStatus.tempC, &systemStatus.humidity);
+  //Send status to PI
+  sendSystemStatus();
+  lastRobotState = systemStatus.robotState;
 }
 
 #endif
