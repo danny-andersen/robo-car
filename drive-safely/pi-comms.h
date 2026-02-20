@@ -1,3 +1,6 @@
+#ifndef PI_COMMS_H
+#define PI_COMMMS_H
+
 #define PI_MSG_TIMEOUT 50  //Timeout reading response from PI
 
 uint8_t seqCounter = 0;
@@ -156,3 +159,4 @@ int8_t sendObstacles(uint16_t heading, uint8_t numObjects, Arc *arcp) {
   return piCommsError;
 }
 
+#endif

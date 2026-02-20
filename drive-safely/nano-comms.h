@@ -1,3 +1,7 @@
+#ifndef NANO_COMMS_H
+#define NANO_COMMMS_H
+
+
 #define UNO_PERIPHERAL_ADDR 0x08
 #define PI_ADDR 0x09
 
@@ -163,3 +167,4 @@ int8_t getNanoStatusCmd() {
 }
 
 
+#endif
