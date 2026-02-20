@@ -382,9 +382,8 @@ void drive(Motor_Direction direction, float straightAheadRad, uint8_t speed) {
 void backOut() {
   float forwardDirection = getCompassBearingRads();
   bool removingPitchOrRoll = false;
-  unsigned long backoutTimer = 0;
+  long startTime = millis();
   do {
-    long loopTime = millis();
     getCombinedProximity();
     if (leftGround() || checkRearProximity(systemStatus.proximityState)) {
       // Something behind us or we have back been picked up - stop
@@ -401,13 +400,9 @@ void backOut() {
       //Continue driving back
       drive(BACK, forwardDirection, 50);
     }
-    long loopDelay = 100 - (millis() - loopTime);
-    if (loopDelay >= 0) {
-      delay(loopDelay);
-    }
+    delay(LOOP_TIME);
     wdt_reset();
-    backoutTimer += 50;
-  } while (backoutTimer < 500);
+  } while ((millis() - startTime) < BACKOUT_TIME);
   drive(STOP, forwardDirection, 0);
 }
 

@@ -196,6 +196,11 @@ Robot_State sweepAndFindDirection() {
     arcs[i].avgDistance = 0;
   }
   int numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
+  //Send list of obstacles to PI
+  sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
+  //Log obstacles
+  sendSystemStatus();
+  //The following will be moved to the PI, and instead the PI will be requested for direction to drive
   SWEEP_STATUS sweepStatus = checkSurroundings(arcs, numObjects, &furthestObjectIndex);
   if (sweepStatus == CLEAR_TO_DRIVE) {
     furthestDistance = arcs[furthestObjectIndex].avgDistance;
@@ -208,8 +213,8 @@ Robot_State sweepAndFindDirection() {
   } else if (sweepStatus == BLOCKED_AHEAD) {
     //Turn 180 and sweep
     systemStatus.robotState = UTURN_SWEEP;
-    // } else if (sweepStatus == CANNOT_TURN) {
-    //   systemStatus.robotState = BACK_OUT;
+  } else if (sweepStatus == CANNOT_TURN) {
+    systemStatus.robotState = BACK_OUT;
   }
   return systemStatus.robotState;
 }

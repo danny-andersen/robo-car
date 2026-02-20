@@ -21,6 +21,7 @@
 #define MIN_DISTANCE_TO_MOVE 20  //Dont get any closer than this
 #define MIN_DISTANCE_AHEAD 40  //Do point moving ahead if this is the furthest object
 #define MIN_DISTANCE_TO_TURN 10  //If we have less than this around then we can't rotate
+#define BACKOUT_TIME 750 //Ms to backout of trouble
 
 enum Robot_State {
   INIT,
