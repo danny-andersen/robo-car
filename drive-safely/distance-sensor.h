@@ -1,3 +1,6 @@
+#ifndef DISTANCE_SENSOR_H
+#define DISTANCE_SENSOR_H
+
 #include <HCSR04.h>
 #include <Servo.h>
 
@@ -204,3 +207,5 @@ SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t* bestDire
   *bestDirectionIndex = furthestObjectIndex;
   return retStatus;
 }
+
+#endif

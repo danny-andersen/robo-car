@@ -1,3 +1,5 @@
+#ifndef PROXIMITY_H
+#define PROXIMITY_H
 
 
 bool checkFrontRightProximity(uint8_t status) {
@@ -44,3 +46,4 @@ void getCombinedProximity() {
 }
 
 
+#endif

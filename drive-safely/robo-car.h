@@ -1,3 +1,6 @@
+#ifndef ROBO_CAR_H
+#define ROBO_CAR_H
+
 #define DEBUG 0    // SET TO 0 OUT TO REMOVE TRACES
 
 #if DEBUG
@@ -126,3 +129,4 @@ StatusStruct rdstatus;
 PiStatusStruct piStatus, rdpiStatus;
 SystemStatusStruct systemStatus;
 
+#endif

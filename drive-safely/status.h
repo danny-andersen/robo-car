@@ -1,3 +1,6 @@
+#ifndef STATUS_H
+#define STATUS_H
+
 
 #include <FastLED.h>
 #include <SparkFun_SHTC3.h>
@@ -66,3 +69,5 @@ bool getTempHumidityInt(int16_t *tempC, int16_t *humidity) {
   }
   return false;
 }
+
+#endif

@@ -1,3 +1,6 @@
+#ifndef MOTOR_DRIVER_H
+#define MOTO_DRIVER_H
+
 #define PIN_Motor_PWMA 5
 #define PIN_Motor_PWMB 6
 #define PIN_Motor_BIN_1 8
@@ -103,3 +106,4 @@ void driveMotor(Motor_Direction direction, uint8_t rightSpeed, uint8_t leftSpeed
   }
 }
 
+#endif

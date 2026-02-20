@@ -1,3 +1,7 @@
+#ifndef GROUND_TRACKING_H
+#define GROUND_TRACKING_H
+
+
 #define GROUND_TRACKING_LEFT_PIN A2
 #define GROUND_TRACKING_MID_PIN A1
 #define GROUND_TRACKING_RIGHT_PIN A0
@@ -23,3 +27,5 @@ bool leftGround() {
   readGroundTracking();
   return (leftTrack >= NO_GROUND && rightTrack >= NO_GROUND && midTrack >= NO_GROUND);
 }
+
+#endif

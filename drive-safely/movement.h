@@ -1,3 +1,7 @@
+#ifndef MOVEMENT_H
+#define MOVEMENT_H
+
+
 //Functions to control drive motors to perform movement of a wheeled device.
 
 #define ROTATE_CHECK_INTERVAL 100
@@ -412,3 +416,5 @@ void aboutTurn() {
   int16_t reversed = normalise(forwardDirection + 180);
   rotateTo(reversed);
 }
+
+#endif

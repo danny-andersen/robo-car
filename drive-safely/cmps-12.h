@@ -1,3 +1,7 @@
+#ifndef CMPS_12_H
+#define CMPS_12_H
+
+
 //Functions for the CMPS-12 compass on an IC2 bus
 
 #define CMPS12_ADDRESS 0x60
@@ -198,3 +202,5 @@ void readBearingAndAttitude(int16_t *compass, int8_t *pitch, int8_t *roll) {
     *compass += 3600;
   }
 }
+
+#endif
