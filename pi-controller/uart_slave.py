@@ -133,6 +133,7 @@ def uart_rx_thread():
         cmd, seq = hdr[0], hdr[1]
         
         #Determine payload length based on cmd
+        payload_len = -1
         match cmd:
             case config.SENDING_OBSTACLES_CMD:
                 payload_len = config.ObstaclesCmd_struct.size
