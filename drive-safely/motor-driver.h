@@ -7,8 +7,6 @@
 #define PIN_Motor_AIN_1 7
 #define PIN_Motor_STBY 3
 
-#define speed_Max 255
-
 enum Motor_Direction {
   FORWARD,         //(1)
   BACK,            //(2)
@@ -21,12 +19,6 @@ enum Motor_Direction {
   STOP,
   INITIAL
 };
-
-static unsigned long lastDriveTime = 0;
-static Motor_Direction lastDriveDirection = INITIAL;
-const int Kp = 15;
-const int maxSpeed = 255;
-const int minSpeed = 10;
 
 void motor_Init() {
   pinMode(PIN_Motor_PWMA, OUTPUT);

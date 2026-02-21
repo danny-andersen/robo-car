@@ -21,7 +21,7 @@
 #define MIN_DISTANCE_TO_MOVE 20  //Dont get any closer than this
 #define MIN_DISTANCE_AHEAD 40  //Do point moving ahead if this is the furthest object
 #define MIN_DISTANCE_TO_TURN 10  //If we have less than this around then we can't rotate
-#define BACKOUT_TIME 750 //Ms to backout of trouble
+#define BACKOUT_TIME 1000 //Ms to backout of trouble
 
 enum Robot_State {
   INIT,
@@ -136,8 +136,9 @@ int8_t piCommsError = 1;    //0 means up and communicating, any other values are
 ObstaclesCmd obstaclesCmd;
 ObstacleData obstacle;
 StatusStruct rdstatus;
-PiStatusStruct piStatus, rdpiStatus;
+PiStatusStruct piStatus;
 SystemStatusStruct systemStatus;
+Robot_State lastRobotState = INIT;
 
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
 Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];       // up to 20 arcs

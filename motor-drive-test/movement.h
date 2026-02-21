@@ -14,6 +14,7 @@ const int Kp = 12;
 const int maxSpeed = 255;
 const int minSpeed = 10;
 
+Robot_State lastRobotState = INIT;
 Robot_State nextState = ROTATING;  //This is used to determine the next rotation state after moving forward or back after an obstruction
 int16_t currentDirn = 0;           // Before we work out which direction to turn, remember what straightahead is
 int16_t lastDirn = 0;              //Direction last pointing in before the rotation started
@@ -24,6 +25,8 @@ long backTimer = 0;
 long forwardTimer = 0;
 bool triedOtherDirn = false;
 uint8_t rotationStuckCnt = 0; // Number of loops where we havent rotated
+
+
 
 int16_t getRotation(int16_t current, int16_t required) {
   //Work out smallest rotation to required direction
@@ -397,6 +400,7 @@ void drive(Motor_Direction direction, float straightAheadRad, uint8_t speed) {
 
 void backOut() {
   float forwardDirection = getCompassBearingRads();
+  bool removingPitchOrRoll = false;
   long startTime = millis();
   do {
     getCombinedProximity();
@@ -404,7 +408,17 @@ void backOut() {
       // Something behind us or we have back been picked up - stop
       break;
     }
-    drive(BACK, forwardDirection, 50);
+    if (rollingOrPitching()) {
+      // Move forward out of trouble
+      removingPitchOrRoll = true;
+      drive(FORWARD, forwardDirection, 50);
+    } else if (removingPitchOrRoll) {
+      // Moved out of trouble - stop
+      break;
+    } else {
+      //Continue driving back
+      drive(BACK, forwardDirection, 50);
+    }
     delay(LOOP_TIME);
     wdt_reset();
   } while ((millis() - startTime) < BACKOUT_TIME);
