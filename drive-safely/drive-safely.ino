@@ -33,10 +33,9 @@ void setup() {
   // Serial.begin(9600);
   systemStatus.robotState = INIT;
   groundTrackingInit();
+  statusInit();
   // Start I²C bus
   Wire.begin();
-  Wire.setWireTimeout(10000);  //10ms
-  statusInit();
   showBatteryStatus();
   delay(3000);  //Let everything settle before initialising accelerometer
   compassReady = compass_init();

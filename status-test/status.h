@@ -1,3 +1,6 @@
+#ifndef STATUS_H
+#define STATUS_H
+
 
 #include <FastLED.h>
 #include <SparkFun_SHTC3.h>
@@ -11,22 +14,46 @@ CRGB leds[NUM_LEDS];
 
 SHTC3 mySHTC3;
 
+float _batteryVoltage = 0.0;
+int16_t _temp = 0;
+int16_t _humid = 0;
+
+bool getTempHumidity(float *tempC, float *humidity) {
+  SHTC3_Status_TypeDef result = mySHTC3.update();
+  if (mySHTC3.lastStatus == SHTC3_Status_Nominal) {
+    *tempC = mySHTC3.toDegC();
+    *humidity = mySHTC3.toPercent();
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool getTempHumidityInt(int16_t *tempC, int16_t *humidity) {
+  float temp, humid;
+  if (getTempHumidity(&temp, &humid)) {
+    *tempC = int((temp * 10.0) + 0.5);
+    *humidity = int((humid * 10.0) + 0.5);
+    return true;
+  }
+  return false;
+}
 
 void statusInit() {
   pinMode(VOL_MEASURE_PIN, INPUT);
   FastLED.addLeds<NEOPIXEL, PIN_RBGLED>(leds, NUM_LEDS);
   FastLED.setBrightness(10);
   mySHTC3.begin();
+  bool tempSensorOK = false;
+  do {
+    tempSensorOK = getTempHumidityInt(&_temp, &_humid);
+  } while (!tempSensorOK);
 }
 
 float getBatteryVoltage() {
   float voltage = (analogRead(VOL_MEASURE_PIN) * 5) * ((10 + 1.5) / 1.5) / 1024;  //Read voltage value
   voltage = voltage + (voltage * 0.08);
   return voltage;
-}
-
-int getBatteryVoltageInt() {
-  return int((getBatteryVoltage() * 100) + 0.5);
 }
 
 void setStatusLed(float voltage) {
@@ -50,23 +77,16 @@ void showBatteryStatus() {
   setStatusLed(getBatteryVoltage());
 }
 
-bool getTempHumidity(float *tempC, float *humidity) {
-  SHTC3_Status_TypeDef result = mySHTC3.update();
-  if (mySHTC3.lastStatus == SHTC3_Status_Nominal) {
-    *tempC = mySHTC3.toDegC();
-    *humidity = mySHTC3.toPercent();
-    return true;
-  } else {
-    return false;
-  }
+void updateStatus() {
+  _batteryVoltage = getBatteryVoltage();
+  setStatusLed(_batteryVoltage);
+  systemStatus.batteryVoltage = int((_batteryVoltage * 100) + 0.5);  //Save as an int but maintain precision
+  getTempHumidityInt(&_temp, &_humid);
+  systemStatus.tempC = _temp;
+  systemStatus.humidity = _humid;
+  //Send status to PI
+  sendSystemStatus();
+  lastRobotState = systemStatus.robotState;
 }
 
-bool getTempHumidityInt(int16_t *tempC, int16_t *humidity) {
-  float temp, humid;
-  if (getTempHumidity(&temp, &humid)) {
-    *tempC = int((temp * 10.0) + 0.5);
-    *humidity = int((humid * 10.0) + 0.5);
-    return true;
-  }
-  return false;
-}
+#endif

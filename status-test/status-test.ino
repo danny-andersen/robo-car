@@ -1,3 +1,8 @@
+int8_t sendSystemStatus() {
+//Stub
+}
+
+#include "robo-car.h"
 #include "status.h"
 
 float temp = 0.0;
@@ -8,8 +13,9 @@ float battVolt = 0.0;
   uint16_t volts = 0;
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   statusInit();
+  Serial.println(mySHTC3.lastStatus);
 }
 
 void loop() {
@@ -18,9 +24,6 @@ void loop() {
   Serial.print("Current voltage value : ");
   Serial.println(battVolt);
   setStatusLed(battVolt);
-  volts = getBatteryVoltageInt();
-  Serial.print("Current voltage value : ");
-  Serial.println(volts/100.0);
   if (getTempHumidity(&temp, &humid)) {
     Serial.print("RH = ");
     Serial.print(humid);
@@ -31,7 +34,7 @@ void loop() {
   if (getTempHumidityInt(&tempC, &humidity)) {
     Serial.print("RH = ");
     Serial.print(humidity / 10.0);
-    Serial.print("%, T = ");p
+    Serial.print("%, T = ");
     Serial.print(tempC / 10.0);
     Serial.println(" C");
   }

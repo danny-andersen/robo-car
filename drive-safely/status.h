@@ -14,7 +14,28 @@ CRGB leds[NUM_LEDS];
 
 SHTC3 mySHTC3;
 
-float batteryVoltage = 0.0;
+float _batteryVoltage = 0.0;
+
+bool getTempHumidity(float *tempC, float *humidity) {
+  SHTC3_Status_TypeDef result = mySHTC3.update();
+  if (mySHTC3.lastStatus == SHTC3_Status_Nominal) {
+    *tempC = mySHTC3.toDegC();
+    *humidity = mySHTC3.toPercent();
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool getTempHumidityInt(int16_t *tempC, int16_t *humidity) {
+  float temp, humid;
+  if (getTempHumidity(&temp, &humid)) {
+    *tempC = int((temp * 10.0) + 0.5);
+    *humidity = int((humid * 10.0) + 0.5);
+    return true;
+  }
+  return false;
+}
 
 void statusInit() {
   pinMode(VOL_MEASURE_PIN, INPUT);
@@ -50,31 +71,10 @@ void showBatteryStatus() {
   setStatusLed(getBatteryVoltage());
 }
 
-bool getTempHumidity(float *tempC, float *humidity) {
-  SHTC3_Status_TypeDef result = mySHTC3.update();
-  if (mySHTC3.lastStatus == SHTC3_Status_Nominal) {
-    *tempC = mySHTC3.toDegC();
-    *humidity = mySHTC3.toPercent();
-    return true;
-  } else {
-    return false;
-  }
-}
-
-bool getTempHumidityInt(int16_t *tempC, int16_t *humidity) {
-  float temp, humid;
-  if (getTempHumidity(&temp, &humid)) {
-    *tempC = int((temp * 10.0) + 0.5);
-    *humidity = int((humid * 10.0) + 0.5);
-    return true;
-  }
-  return false;
-}
-
 void updateStatus() {
-  batteryVoltage = getBatteryVoltage();
-  setStatusLed(batteryVoltage);
-  systemStatus.batteryVoltage = int((batteryVoltage * 100) + 0.5);  //Save as an int but maintain precision
+  _batteryVoltage = getBatteryVoltage();
+  setStatusLed(_batteryVoltage);
+  systemStatus.batteryVoltage = int((_batteryVoltage * 100) + 0.5);  //Save as an int but maintain precision
   getTempHumidityInt(&systemStatus.tempC, &systemStatus.humidity);
   //Send status to PI
   sendSystemStatus();
