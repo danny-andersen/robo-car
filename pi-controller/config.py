@@ -56,16 +56,18 @@ PROXIMITY_ANGLE_REAR_LEFT_END = 260
 PROXIMITY_ANGLE_REAR_RIGHT_START = 100  # Angle (degrees) on right side
 PROXIMITY_ANGLE_REAR_RIGHT_END = 130
 
+NO_DIRECTION = 1000  #  Special value indicating no direction to drive has been specified by PI
+NO_SAFE_DIRECTION = 1001  # Special value indicating no safe direction to drive from map or obstacles
 
 # -----------------------------
 # Struct definitions
 # -----------------------------
-ObstacleData_struct = struct.Struct("<bHHH")  # obstacleNum, relDir, width, avgDistance
+ObstacleData_struct = struct.Struct("<bHHH")  # obstacleNum, bearing, width, avgDistance
 ObstaclesCmd_struct = struct.Struct("<hB")  # currentCompassDirn, numToSend
 SystemStatusStruct = struct.Struct(
     "<LhhHBBhbbBBBBB"
 )  # timestamp, humidity, tempC, batteryVoltage, robotState, proximitySensors, currentBearing, pitch, roll, rightWheelSpeed, leftWheelSpeed, averageSpeed, distanceTravelled, errorField, CRC
-PiStatusStruct = struct.Struct("<BBH")  # systemReady, lidarProximity, directionToDrive
+PiStatusStruct = struct.Struct("<BBHB")  # systemReady, lidarProximity, directionToDrive, distanceToDrive
 
 
 MAX_OBS = 20
@@ -111,7 +113,8 @@ systemStatus = {
 piStatus = {
     "systemReady": 0,
     "lidarProximity": 0,  # LIDAR proximity state: bits are set as per LIDAR_PROXIMITY_xxx constants
-    "directionToDrive": 1000,  # Value indicating no direction set
+    "directionToDrive": NO_DIRECTION,  # Value indicating no direction set
+    "distanceToDrive": 0,
 }
 
 ROBOT_STATE_NAMES = [
@@ -129,6 +132,7 @@ ROBOT_STATE_NAMES = [
     "ROTATING_RIGHT_BLOCKED_LEFT",  # Tried rotating left but blocked, so going right
     "ROTATING_FRONT_BLOCKED_BACKING_OUT",
     "ROTATING_REAR_BLOCKED_GO_FORWARD",
+    "WAITING_FOR_DIRECTION",
 ]
 
 ERROR_FIELD_NAMES = [
@@ -184,3 +188,5 @@ def printableProximity(proxStatus):
 
 
 smoothedScan = [0] * 360
+poses = [] # list of (timestamp, x, y, theta)
+explorerManager = None

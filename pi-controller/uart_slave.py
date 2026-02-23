@@ -51,8 +51,8 @@ def on_receive(cmd, data):
     elif cmd == config.NEXT_OBSTACLE_CMD:
         if len(data) >= 1 + config.ObstacleData_struct.size:
             payload = data[1:1 + config.ObstacleData_struct.size]
-            obstacleNum, relDir, width, dist = config.ObstacleData_struct.unpack(payload)
-            config.obstacles[obstacleNum]["bearing"] = relDir
+            obstacleNum, bearing, width, dist = config.ObstacleData_struct.unpack(payload)
+            config.obstacles[obstacleNum]["bearing"] = bearing
             config.obstacles[obstacleNum]["width"] = width
             config.obstacles[obstacleNum]["avgDistance"] = dist
         
@@ -172,7 +172,8 @@ def uart_rx_thread():
         resp_cmd = config.PI_STATUS_RESPONSE
         status_bytes = config.PiStatusStruct.pack(config.piStatus["systemReady"], 
                                             config.piStatus["lidarProximity"], 
-                                            config.piStatus["directionToDrive"])
+                                            config.piStatus["directionToDrive"],
+                                            config.piStatus["distanceToDrive"])
         resp_crc_buf = bytes([resp_cmd, seq]) + status_bytes
         resp_crc = crc16(resp_crc_buf)
 

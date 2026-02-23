@@ -163,3 +163,5 @@ class ICP_SLAM:
 
     def get_map(self):
         return self.map
+
+ 

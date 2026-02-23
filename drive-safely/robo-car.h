@@ -23,6 +23,9 @@
 #define MIN_DISTANCE_TO_TURN 10  //If we have less than this around then we can't rotate
 #define BACKOUT_TIME 1000 //Ms to backout of trouble
 
+#define NO_DIRECTION 1000  // Special value indicating no direction to drive has been specified by PI
+#define NO_SAFE_DIRECTION 1001  // Special value indicating no safe direction to drive determined from map
+
 enum Robot_State {
   INIT,
   INIT_FAILED,
@@ -38,6 +41,7 @@ enum Robot_State {
   ROTATING_RIGHT_BLOCKED_LEFT, //Tried rotating left but blocked, so going right
   ROTATING_FRONT_BLOCKED_BACKING_OUT, //Front obstruction but clear at back, so backup a bit and then rotate (if clear)
   ROTATING_REAR_BLOCKED_GO_FORWARD, //Rear obstruction but clear at front, so go forward a bit and then rotate (if clear)
+  WAITING_FOR_DIRECTION, //Waiting for the PI to determine where to move to next, based on missing map info
 };
 
 enum Drive_State {
@@ -91,6 +95,7 @@ struct PiStatusStruct {
   uint8_t ready;              //0 == not ready
   uint8_t lidarStatus;        //Bits set according to proximity bits
   uint16_t directionToDrive;  //1000 = direction not set
+  uint8_t distanceToDrive;
 };
 
 struct SystemStatusStruct {

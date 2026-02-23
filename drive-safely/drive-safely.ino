@@ -13,15 +13,12 @@
 #include "movement.h"
 #include "status.h"
 
-unsigned long driveTimer = 0;
+uint8_t numObjects = 0;
 int16_t directionToDrive = 0;
+uint8_t distanceToDrive = 0;
 float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
 Drive_State currentDriveState = STOPPED;
 
-uint16_t furthestDistance = 0;
-
-bool accelerometerReady = false;
-bool compassReady = false;
 bool drivingForward = false;  //Set to true when driving forward
 
 unsigned long statusTimer = 0;
@@ -38,7 +35,7 @@ void setup() {
   Wire.begin();
   showBatteryStatus();
   delay(3000);  //Let everything settle before initialising accelerometer
-  compassReady = compass_init();
+  compass_init();
   waitUntilCalibrated();
   motor_Init();
   distanceSensorInit();
@@ -99,7 +96,10 @@ void loop() {
   // }
   switch (systemStatus.robotState) {
     case SWEEP:
-      systemStatus.robotState = sweepAndFindDirection();
+      sweepAndRequestDirection();
+      break;
+    case WAITING_FOR_DIRECTION:
+      getDirectionToDrive();
       break;
     case ROTATING:
       //Rotate to that direction
@@ -108,7 +108,7 @@ void loop() {
         //Something wrong with gyro as failed to find correct direction - retry
         systemStatus.robotState = SWEEP;
       } else {
-        //Returns when car is pointed in the right direction
+        //Returns when robot is pointed in the right direction
         systemStatus.robotState = DRIVE;
       }
       break;
@@ -169,7 +169,21 @@ Robot_State adjustDirection() {
   return returnState;
 }
 
-Robot_State sweepAndFindDirection() {
+void getDirectionToDrive() {
+  sendSystemStatus();
+  if (piStatus.directionToDrive == NO_SAFE_DIRECTION) {
+    //PI cannot determine a safe direction - determine next step locally
+    getFallBackDirection();
+    sendSystemStatus();
+  } else if (piStatus.directionToDrive != NO_DIRECTION) {
+    directionToDrive = piStatus.directionToDrive;
+    distanceToDrive = piStatus.distanceToDrive;
+    systemStatus.robotState = ROTATING;
+    sendSystemStatus();
+  }
+}
+
+void sweepAndRequestDirection() {
   // if (Serial) {
   //   Serial.print("Sweeping, straightahead = ");
   //   Serial.println(currentHeading);
@@ -179,17 +193,22 @@ Robot_State sweepAndFindDirection() {
   for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
     arcs[i].avgDistance = 0;
   }
-  int numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
+  numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
   //Send list of obstacles to PI
   sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
-  //Log obstacles
+  //Update robot state and send status, to trigger PI to determine next move to make
+  piStatus.directionToDrive = 1000;
+  systemStatus.robotState = WAITING_FOR_DIRECTION;
   sendSystemStatus();
-  //The following will be moved to the PI, and instead the PI will be requested for direction to drive
+}
+
+void getFallBackDirection() {
+  //The following is called when the PI cannot determine the next safe move, so a default move based on local info is determined (which maybe to backou)
   SWEEP_STATUS sweepStatus = checkSurroundings(arcs, numObjects, &furthestObjectIndex);
   if (sweepStatus == CLEAR_TO_DRIVE) {
-    furthestDistance = arcs[furthestObjectIndex].avgDistance;
-    int16_t servoDirection = arcs[furthestObjectIndex].centreDirection;  //This is the degree relative to where we are currently pointed, where 90 is straightahead
-    int16_t relDirection = SERVO_CENTRE - servoDirection;                //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
+    distanceToDrive = arcs[furthestObjectIndex].avgDistance - MIN_DISTANCE_TO_MOVE;  //Distance to move is slightly less than nearest object
+    int16_t servoDirection = arcs[furthestObjectIndex].centreDirection;              //This is the degree relative to where we are currently pointed, where 90 is straightahead
+    int16_t relDirection = SERVO_CENTRE - servoDirection;                            //Straight ahead is 0, +90 is full right, -90 is full left relative to current direction (yaw)
     //Convert to direction based on what the accelerometer things (where 0 is the original starting direction)
     //We need to convert that to a value relative to the accelerometer as it is our only constant point of reference
     directionToDrive = normalise(systemStatus.currentBearing + relDirection);
@@ -200,7 +219,6 @@ Robot_State sweepAndFindDirection() {
   } else if (sweepStatus == CANNOT_TURN) {
     systemStatus.robotState = BACK_OUT;
   }
-  return systemStatus.robotState;
 }
 
 void driveAndScan() {
@@ -220,25 +238,25 @@ void driveAndScan() {
     drivingForward = false;
   } else if (hitSomething) {
     systemStatus.robotState = adjustDirection();
-  } else if (distanceClear > 100) {
-    //Charge!
-    drive(FORWARD, currentDirectionRad, 100);
-    currentDriveState = DRIVE_FORWARD;
-  } else if (distanceClear < 100 && distanceClear > 50) {
-    //Slow
-    drive(FORWARD, currentDirectionRad, 75);
-    currentDriveState = DRIVE_FORWARD;
-  } else if (distanceClear > MIN_DISTANCE_TO_MOVE) {
-    //Dead slow
-    drive(FORWARD, currentDirectionRad, 50);
-    currentDriveState = DRIVE_FORWARD;
-  } else {
-    //Stop!
+  } else if (systemStatus.distanceTravelled <= distanceToDrive || distanceClear <= MIN_DISTANCE_TO_MOVE) {
+    //Driven far enough - stop
     drive(STOP, currentDirectionRad, 0);
     currentDriveState = STOPPED;
     sendStopMotorCmd();
     //Reached the end of the current drive - do another sweep
     drivingForward = false;
     systemStatus.robotState = SWEEP;
+  } else if (distanceClear > 100) {
+    //Lots of space
+    drive(FORWARD, currentDirectionRad, 100);
+    currentDriveState = DRIVE_FORWARD;
+  } else if (distanceClear < 100 && distanceClear > 50) {
+    //Slow
+    drive(FORWARD, currentDirectionRad, 75);
+    currentDriveState = DRIVE_FORWARD;
+  } else {
+    //Dead slow
+    drive(FORWARD, currentDirectionRad, 50);
+    currentDriveState = DRIVE_FORWARD;
   }
 }
