@@ -13,7 +13,6 @@
 #include "movement.h"
 #include "status.h"
 
-uint8_t numObjects = 0;
 int16_t directionToDrive = 0;
 uint8_t distanceToDrive = 0;
 float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
@@ -21,12 +20,12 @@ Drive_State currentDriveState = STOPPED;
 
 bool drivingForward = false;  //Set to true when driving forward
 
-unsigned long statusTimer = 0;
-long lastLoopTime = 0;  //Last time that we went through a loop
+unsigned long statusTimer = 0; //Total time since it was last booted
+unsigned long lastLoopTime = 0;  //Last time that we went through a loop
 
 void setup() {
   Serial.begin(115200);
-  D_println("Starting...");
+  D_println(F("Starting..."));
   // Serial.begin(9600);
   systemStatus.robotState = INIT;
   groundTrackingInit();
@@ -81,7 +80,6 @@ void loop() {
   currentDirectionRad = getCompassBearingRads();
   readAttitude(&(systemStatus.pitch), &(systemStatus.roll));
 
-  statusTimer += LOOP_TIME;
   if (statusTimer > STATUS_TIME) {
     statusTimer = 0;
     updateStatus();
@@ -143,10 +141,14 @@ void loop() {
       systemStatus.robotState = STOPPED;
       break;
   }
-  long loopDelay = LOOP_TIME - (millis() - lastLoopTime);
-  if (loopDelay >= 0) {
-    delay(loopDelay);
-  }
+  unsigned long loopTaken = (millis() - lastLoopTime);
+  D_println(loopTaken);
+  statusTimer += loopTaken;
+  if (loopTaken < LOOP_TIME) {
+    unsigned long delayTime = LOOP_TIME - loopTaken;
+    delay(delayTime);
+    statusTimer += delayTime;
+  } 
 }
 
 Robot_State adjustDirection() {
@@ -170,7 +172,9 @@ Robot_State adjustDirection() {
 }
 
 void getDirectionToDrive() {
-  sendSystemStatus();
+  getPiStatusCmd();
+  D_print(F("Direction: "));
+  D_println(piStatus.directionToDrive);
   if (piStatus.directionToDrive == NO_SAFE_DIRECTION) {
     //PI cannot determine a safe direction - determine next step locally
     getFallBackDirection();
@@ -197,7 +201,7 @@ void sweepAndRequestDirection() {
   //Send list of obstacles to PI
   sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
   //Update robot state and send status, to trigger PI to determine next move to make
-  piStatus.directionToDrive = 1000;
+  piStatus.directionToDrive = 1000; //Reset current direction to drive
   systemStatus.robotState = WAITING_FOR_DIRECTION;
   sendSystemStatus();
 }
@@ -238,7 +242,7 @@ void driveAndScan() {
     drivingForward = false;
   } else if (hitSomething) {
     systemStatus.robotState = adjustDirection();
-  } else if (systemStatus.distanceTravelled <= distanceToDrive || distanceClear <= MIN_DISTANCE_TO_MOVE) {
+  } else if (systemStatus.distanceTravelled >= distanceToDrive || distanceClear <= MIN_DISTANCE_TO_MOVE) {
     //Driven far enough - stop
     drive(STOP, currentDirectionRad, 0);
     currentDriveState = STOPPED;
