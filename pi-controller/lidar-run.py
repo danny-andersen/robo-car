@@ -1,49 +1,53 @@
+import queue
 import threading
 import time
 import numpy as np
 import math
 
 import config
+from robot_state_monitor import RobotStateMonitor
 from uart_slave import msg_process_thread, uart_rx_thread
 from ld19_reader import LD19Reader
 from icp_slam_scan_to_map import ICP_SLAM
 from proximity_scan import processProximityScan
 from frontiers import Explorer, ExplorationManager
 
-def processLidarScan(current_bearing, robotState, slam, reader):
-    current_bearingRads = current_bearing * (math.pi / 180.0)
-    if (robotState == config.ROBOT_STATE_NAMES.index("SWEEP")): # SWEEP
+def processLidarScan(current_bearing, robotState, reader):
+    scan = reader.latest_scan
+    if scan is None:
+        return
+    reader.latest_scan = None
+    if (robotState == config.ROBOT_STATE_NAMES.index("SWEEP")):
         # We are stationary during a sweep, so update SLAM
-        scan = reader.latest_scan
-        if scan is None:
-            return
-        reader.latest_scan = None
+        current_bearingRads = current_bearing * (math.pi / 180.0)
         config.explorerManager.update_map(scan, current_bearingRads)
-        # Save pose 
-        t = time.time()
-        x, y, th = slam.get_pose()
-        config.poses.append((t, x, y, th))        
-        # Periodically save map + poses 
-        if len(config.poses) % 50 == 0:
-            np.save("./slam_logs/map.npy", slam.get_map())
-            np.savetxt("./slam_logs/poses.csv", config.poses, delimiter=",")    
-    elif (robotState == config.ROBOT_STATE_NAMES.index("WAITING_FOR_DIRECTION")):
-        # Robot is waiting for direction - process map to determine next move
-        #Firstly give it the obstacles from ultrasonic sweep to inform move veto
-        config.explorerManager.receive_obstacles(config.obstacles)
-        config.piStatus["directionToDrive"] = config.NO_DIRECTION #Default to no direction, in case explorer manager fails to give one
-        #Set PI status for direction and distance to move, which will be sent to robot on the next status response 
-        config.piStatus["directionToDrive"], config.piStatus["distanceToDrive"] = config.explorerManager.get_next_move()
-        print("Move:", config.piStatus["directionToDrive"], "deg for", config.piStatus["distanceToDrive"]   , "mm")
-    
     else:
         # Moving or rotating - process scan for obstacle avoidance only
         processProximityScan(scan, robotState)
+   
 
-        # grid = slam.get_map()
-        # x, y, th = slam.get_pose()
-        # self.map_widget.update_map_and_pose(grid, (x, y, th))
-    
+def save_worker_thread(slam, save_queue):
+    while True:
+        task = save_queue.get()   # blocks until needed
+
+        if task == "save":
+            print("Saving SLAM map and poses...")
+            # Extract map + pose safely
+            map = slam.get_map().copy()
+            # Save pose 
+            t = time.time()
+            x, y, th = slam.get_pose()
+            config.poses.append((t, x, y, th))        
+
+            # Perform slow disk writes
+            np.save("./slam_logs/map.npy", map)
+            # Append pose to CSV 
+            with open("./slam_logs/poses.csv", "a") as f:
+                f.write(f"{t},{x},{y},{th}\n")  
+
+        save_queue.task_done()
+
+
 if __name__ == '__main__':
     slam = ICP_SLAM(map_size_m=16.0, resolution=0.02)
     reader = LD19Reader(config.USB_SERIAL_PORT)
@@ -53,6 +57,21 @@ if __name__ == '__main__':
     processing_thread.start()    
     uart_thread = threading.Thread( target=uart_rx_thread, daemon=True ) 
     uart_thread.start()
+ 
+    last_state = None
+    save_queue = queue.Queue()
+
+    with open("./slam_logs/poses.csv", "w") as f:
+        f.write("")
+ 
+    state_monitor = RobotStateMonitor(save_queue)
+    
+    save_thread = threading.Thread(
+        target=save_worker_thread,
+        args=(slam, save_queue),
+        daemon=True
+    )
+    save_thread.start()
         
     config.explorerManager = ExplorationManager(slam=slam, resolution_m=0.02)
     config.piStatus["systemReady"] = 1
@@ -64,7 +83,10 @@ if __name__ == '__main__':
         while True:
             now = time.perf_counter()
             if now >= next_run: 
-                processLidarScan(config.systemStatus["currentBearing"], config.systemStatus["robotState"], slam, reader) 
+                robotState = config.systemStatus["robotState"]
+                state_monitor.update_state(robotState)
+                # print("Robot State:", config.ROBOT_STATE_NAMES[robotState])
+                processLidarScan(config.systemStatus["currentBearing"], robotState, reader) 
                 next_run += interval 
             # Tiny sleep to avoid 100% CPU 
             time.sleep(0.001)

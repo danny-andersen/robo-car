@@ -2,6 +2,8 @@ import numpy as np
 import math
 from scipy.ndimage import distance_transform_edt
 
+import config
+
 
 class ICP_SLAM:
     def __init__(self, map_size_m=16.0, resolution=0.02):
@@ -122,11 +124,47 @@ class ICP_SLAM:
         wx, wy = self.transform_points_world(pts, self.x, self.y, self.theta)
         ix, iy = self.world_to_grid(wx, wy)
 
-        mask = (ix >= 0) & (ix < self.size) & (iy >= 0) & (iy < self.size)
-        ix = ix[mask]
-        iy = iy[mask]
+        # Robot position in grid coords
+        rx, ry = self.world_to_grid(
+            np.array([self.x]), 
+            np.array([self.y])
+        )
+        rx = int(rx[0])
+        ry = int(ry[0])
 
-        self.map[iy, ix] = 255
+        for hx, hy in zip(ix, iy):
+            if not (0 <= hx < self.size and 0 <= hy < self.size):
+                continue
+
+            # Bresenham ray from robot to hit
+            for cx, cy in self.bresenham(rx, ry, hx, hy)[:-1]:
+                if self.map[cy, cx] == config.UNKNOWN:   # only overwrite unknown
+                    self.map[cy, cx] = config.FREE   # FREE
+
+            # Mark hit cell as occupied
+            self.map[hy, hx] = config.OCCUPIED
+
+
+    def bresenham(self, x0, y0, x1, y1):
+        points = []
+        dx = abs(x1 - x0)
+        dy = -abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx + dy
+
+        while True:
+            points.append((x0, y0))
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy
+                x0 += sx
+            if e2 <= dx:
+                err += dx
+                y0 += sy
+        return points
 
     # ---------------------------------------------------------
     # Main update: scan + IMU heading
@@ -137,8 +175,8 @@ class ICP_SLAM:
             return
 
         # 1. Use IMU heading as primary theta
-        self.theta = imu_theta
-
+        self.theta = math.radians(90.0 - imu_theta)
+        
         # 2. Build distance field from current map
         self.update_distance_field()
 

@@ -174,6 +174,7 @@ def uart_rx_thread():
                                             config.piStatus["lidarProximity"], 
                                             config.piStatus["directionToDrive"],
                                             config.piStatus["distanceToDrive"])
+        # print("Sending PI status response:", config.piStatus)
         resp_crc_buf = bytes([resp_cmd, seq]) + status_bytes
         resp_crc = crc16(resp_crc_buf)
 

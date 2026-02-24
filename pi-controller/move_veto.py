@@ -14,9 +14,10 @@ class MoveVeto:
 
         for obs in obstacles:
             # Check angular overlap
-            if abs(obs.bearing - bearing) <= obs.width / 2:
+            if abs(obs["bearing"] - bearing) <= obs["width"] / 2:
                 # Check distance conflict
-                if obs.avgDistance < distance:
+                if obs["avgDistance"] < distance:
+                    print("Ultrasonic veto for move:", move)
                     return True
         return False
 
@@ -96,7 +97,7 @@ class MoveVeto:
             return False
         return True
 
-    def adjust_move(self, move, obstacles, max_distance_mm=800):
+    def adjust_move(self, move, obstacles, max_distance_mm=1000):
         bearing, distance = move
 
         # 1. Clip long moves

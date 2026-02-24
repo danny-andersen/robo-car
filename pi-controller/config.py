@@ -165,6 +165,9 @@ USB_SERIAL_PORT = "/dev/ttyUSB0"  # USB serial port for LIDAR data
 MAP_SIZE_PIXELS = 800  # Occupancy grid width/height
 MAP_SIZE_METERS = 16.0  # Map width/height in meters
 
+FREE = 1
+OCCUPIED = 255
+UNKNOWN = 0
 
 def printableProximity(proxStatus):
     parts = []

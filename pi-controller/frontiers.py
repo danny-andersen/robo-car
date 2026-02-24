@@ -2,6 +2,7 @@ import math
 import heapq
 
 from move_veto import MoveVeto
+import config
 
 class Explorer:
     def __init__(self, resolution_m):
@@ -26,12 +27,32 @@ class Explorer:
 
         for y in range(h):
             for x in range(w):
-                if 0 < grid[y, x] < 255:  # free cell
-                    # Check if any neighbor is unknown
-                    for nx, ny in self.neighbors(x, y, w, h):
-                        if grid[ny, nx] == 0:  # unknown
-                            frontiers.append((x, y))
-                            break
+
+                # 1. Free cell test (tight)
+                if grid[y, x] != config.FREE:
+                    continue
+
+                # 2. Must have at least one unknown neighbour
+                unknown_neighbour = False
+                for nx, ny in self.neighbors(x, y, w, h):
+                    if grid[ny, nx] == config.UNKNOWN:
+                        unknown_neighbour = True
+                        break
+
+                if not unknown_neighbour:
+                    continue
+
+                # 3. Must NOT be too close to obstacles
+                obstacle_nearby = False
+                for nx, ny in self.neighbors(x, y, w, h):
+                    if grid[ny, nx] == config.OCCUPIED:
+                        obstacle_nearby = True
+                        break
+
+                if obstacle_nearby:
+                    continue
+
+                frontiers.append((x, y))
 
         return frontiers
 
@@ -147,10 +168,15 @@ class Explorer:
             dx = x - prev_x
             dy = y - prev_y
 
-            bearing = math.degrees(math.atan2(dy, dx))
+            # Map-frame bearing (mathematical)
+            map_bearing = math.degrees(math.atan2(dy, dx))
+
+            # Convert to compass absolute bearing
+            compass_bearing = (90 - map_bearing) % 360
+
             distance = math.sqrt(dx*dx + dy*dy)
 
-            moves.append((bearing, distance))
+            moves.append((compass_bearing, distance))
 
             prev_x, prev_y = x, y
 
@@ -161,6 +187,7 @@ class Explorer:
     # ---------------------------------------------------------
     def get_exploration_moves(self, grid, robot_x_mm, robot_y_mm):
         frontiers = self.find_frontiers(grid)
+        print("Detected frontiers:", len(frontiers))
         if not frontiers:
             return []
 
@@ -209,14 +236,15 @@ class ExplorationManager:
         x, y, th = self.slam.get_pose()
 
         moves = self.explorer.get_exploration_moves(grid, x, y)
-        self.cached_moves = moves
 
         # 3. Check moves to see if they are vetoed by either ultrasonic or LIDAR obstacles, or if they are too long
-        while self.cached_moves:
-            move = self.cached_moves.pop(0)
+        while moves:
+            move = moves.pop(0)
+            print("Proposed move:", move)
             adjusted = self.veto.adjust_move(move, self.obstacles)
             if adjusted:
                 return adjusted
  
         # No safe move available - Let the robot decide what to do (e.g. rotate in place)
-        return (config.NO_SAFE_DIRECTION, 0)  # No direction, no distance   
+        # return (config.NO_SAFE_DIRECTION, 0)  # No direction, no distance   
+        return (config.NO_DIRECTION, 0)  # No direction, no distance   
