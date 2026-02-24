@@ -8,6 +8,8 @@ class OfflineViewer(QtWidgets.QMainWindow):
 
         # Load data
         self.map = np.load("map.npy")
+        print("Number of set pixels:", np.sum(self.map > 0))
+        print(np.unique(self.map, return_counts=True))  # Check unique values and their counts
         self.poses = np.loadtxt("poses.csv", delimiter=",")
 
         # Create map widget

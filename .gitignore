@@ -58,3 +58,7 @@ dkms.conf
 pi-controller/venv/
 pi-controller/__pycache__/
 pi-controller/robo-status.html
+lidar-viewer/venv/
+lidar-viewer/__pycache__/
+lidar-viewer/map.npy
+lidar-viewer/poses.csv
