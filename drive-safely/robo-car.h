@@ -1,7 +1,7 @@
 #ifndef ROBO_CAR_H
 #define ROBO_CAR_H
 
-#define DEBUG 0    // SET TO 0 OUT TO REMOVE TRACES
+#define DEBUG 0   // SET TO 0 OUT TO REMOVE TRACES
 
 #if DEBUG
 #define D_SerialBegin(...) Serial.begin(__VA_ARGS__)
@@ -94,7 +94,7 @@ struct ObstaclesCmd {
 struct PiStatusStruct {
   uint8_t ready;              //0 == not ready
   uint8_t lidarStatus;        //Bits set according to proximity bits
-  uint16_t directionToDrive;  //1000 = direction not set
+  uint16_t directionToDrive;  //1000 = direction not set, 1001 = direction cannot be set - choose your own
   uint8_t distanceToDrive;
 };
 
@@ -148,5 +148,7 @@ Robot_State lastRobotState = INIT;
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
 Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];       // up to 20 arcs
 uint8_t furthestObjectIndex = 0;
+uint8_t numObjects = 0;
+
 
 #endif

@@ -76,6 +76,8 @@ int8_t uartSendCommand(uint8_t cmd,
                        const void *payload,
                        uint8_t payloadLen) {
   // Flush stale Pi replies
+  // piCommsError = 0;
+  // return 0;
   uartFlushInput();
 
   uint8_t seq = seqCounter++;
