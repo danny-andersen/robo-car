@@ -44,7 +44,11 @@ void setup() {
     D_println(piCommsError);
     delay(100);
   } while (piCommsError || nanoCommsError);
-  delay(1000);
+  //Reset movement stats
+  sendStartMotorCmd();
+  sendStopMotorCmd();
+  //Allow time for environment to clear
+  delay(5000);
   systemStatus.currentBearing = getCompassBearing();
   //Send init status to PI for logging
   updateStatus();
