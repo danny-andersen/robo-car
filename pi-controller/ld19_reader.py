@@ -33,6 +33,7 @@ class LD19Reader(threading.Thread):
         # A 360-slot distance array (mm), initialized to "no obstacle"
         self.scan_accum = np.full(DEG_PER_SCAN, DISTANCE_NO_OBSTACLE_MM, dtype=np.int32)
         self.filled = np.zeros(DEG_PER_SCAN, dtype=np.bool_)
+        self.prev_start_angle = None
 
     def run(self):
         while self.running:
@@ -89,17 +90,25 @@ class LD19Reader(threading.Thread):
                     angles_deg, distances_mm, speed = self._parse_ld19_packet(packet)
                     # Insert measurements into accumulation
                     for angle, dist in zip(angles_deg, distances_mm):
-                        idx = int(round(angle)) % DEG_PER_SCAN
+                        idx = int(angle % DEG_PER_SCAN)
                         # Keep the smallest distance observed for that degree
                         if dist > 0 and dist < self.scan_accum[idx]:
                             self.scan_accum[idx] = dist
                         self.filled[idx] = True
-                    # If a large portion is filled, publish a scan
-                    if self.filled.sum() > 350:  # threshold for "complete" scan
-                        self.latest_scan = np.copy(self.scan_accum)
-                        # Reset accumulators for the next revolution
-                        self.scan_accum[:] = DISTANCE_NO_OBSTACLE_MM
-                        self.filled[:] = False
+                    if self.prev_start_angle is not None:
+                        # Detect wrap-around (new revolution)
+                        if angles_deg[0] < self.prev_start_angle:
+                            # Publish completed scan
+                            self.latest_scan = np.copy(self.scan_accum)
+                            self.scan_accum[:] = DISTANCE_NO_OBSTACLE_MM
+                            self.filled[:] = False
+                    # if self.filled.sum() > 350:  # threshold for "complete" scan
+                    #     self.latest_scan = np.copy(self.scan_accum)
+                    #     # Reset accumulators for the next revolution
+                    #     self.scan_accum[:] = DISTANCE_NO_OBSTACLE_MM
+                    #     self.filled[:] = False
+
+                    self.prev_start_angle = angles_deg[0]                    
                 except struct.error:
                     # If unpack fails, skip this header
                     pass

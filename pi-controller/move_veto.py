@@ -98,7 +98,7 @@ class MoveVeto:
         return True
 
     def adjust_move(self, move, obstacles, max_distance_mm=1000):
-        bearing, distance = move
+        bearing, distance  = move
 
         # 1. Clip long moves
         if distance > max_distance_mm:

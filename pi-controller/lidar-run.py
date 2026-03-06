@@ -9,22 +9,7 @@ from robot_state_monitor import RobotStateMonitor
 from uart_slave import msg_process_thread, uart_rx_thread
 from ld19_reader import LD19Reader
 from icp_slam_scan_to_map import ICP_SLAM
-from proximity_scan import processProximityScan
-from frontiers import Explorer, ExplorationManager
-
-def processLidarScan(current_bearing, robotState, reader):
-    scan = reader.latest_scan
-    if scan is None:
-        return
-    reader.latest_scan = None
-    if (robotState == config.ROBOT_STATE_NAMES.index("SWEEP")):
-        # We are stationary during a sweep, so update SLAM
-        current_bearingRads = current_bearing * (math.pi / 180.0)
-        config.explorerManager.update_map(scan, current_bearingRads)
-    else:
-        # Moving or rotating - process scan for obstacle avoidance only
-        processProximityScan(scan, robotState)
-   
+from frontiers import ExplorationManager
 
 def save_worker_thread(slam, save_queue):
     while True:
@@ -40,16 +25,21 @@ def save_worker_thread(slam, save_queue):
             config.poses.append((t, x, y, th))        
 
             # Perform slow disk writes
-            np.save("./slam_logs/map.npy", map)
+            np.save(f"./slam_logs/map_{config.save_index:04d}.npy", map)
             # Append pose to CSV 
             with open("./slam_logs/poses.csv", "a") as f:
                 f.write(f"{t},{x},{y},{th}\n")  
 
+            # np.save("./slam_logs/scans.npy", np.array(slam.scan_log, dtype=object))
+            np.save(f"./slam_logs/frontiers_{config.save_index:04d}.npy", np.array(config.explorerManager.frontier_log, dtype=object))            
+            
+            config.save_index += 1
+            
         save_queue.task_done()
 
 
 if __name__ == '__main__':
-    slam = ICP_SLAM(map_size_m=16.0, resolution=0.02)
+    slam = ICP_SLAM(map_size_m=6.0, resolution=0.02)
     reader = LD19Reader(config.USB_SERIAL_PORT)
     reader.start()
 
@@ -60,12 +50,11 @@ if __name__ == '__main__':
  
     last_state = None
     save_queue = queue.Queue()
+    config.save_index = 0
 
     with open("./slam_logs/poses.csv", "w") as f:
         f.write("")
  
-    state_monitor = RobotStateMonitor(save_queue)
-    
     save_thread = threading.Thread(
         target=save_worker_thread,
         args=(slam, save_queue),
@@ -74,19 +63,19 @@ if __name__ == '__main__':
     save_thread.start()
         
     config.explorerManager = ExplorationManager(slam=slam, resolution_m=0.02)
+    state_monitor = RobotStateMonitor(save_queue, reader=reader, explorer_manager=config.explorerManager)
+    
     config.piStatus["systemReady"] = 1
 
-    interval = 0.050 # 50 ms 
+    interval = 0.020 # Update robot state every 20 ms and check if a LIDAR scan is available to process for SLAM and obstacle avoidance - this is a good balance between keeping the map and frontier information fresh for decision making, and not overloading the CPU with too frequent updates and SLAM processing 
     next_run = time.perf_counter()
     try:
         # Main loop
         while True:
             now = time.perf_counter()
             if now >= next_run: 
-                robotState = config.systemStatus["robotState"]
-                state_monitor.update_state(robotState)
+                state_monitor.update_state(config.systemStatus["robotState"], config.systemStatus["currentBearing"], config.systemStatus["distanceTravelled"],)
                 # print("Robot State:", config.ROBOT_STATE_NAMES[robotState])
-                processLidarScan(config.systemStatus["currentBearing"], robotState, reader) 
                 next_run += interval 
             # Tiny sleep to avoid 100% CPU 
             time.sleep(0.001)

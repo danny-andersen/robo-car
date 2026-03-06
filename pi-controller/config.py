@@ -161,6 +161,8 @@ lastBootTime = 0
 # LIDAR
 USB_SERIAL_PORT = "/dev/ttyUSB0"  # USB serial port for LIDAR data
 
+LIDAR_OFFSET_DEG = 0.0  # If LIDAR is not perfectly front-facing, set this to the angle offset in degrees (positive = CCW, negative = CW) to correct it in SLAM and proximity processing
+
 # SLAM/map parameters
 MAP_SIZE_PIXELS = 800  # Occupancy grid width/height
 MAP_SIZE_METERS = 16.0  # Map width/height in meters
@@ -169,6 +171,11 @@ FREE = 1
 OCCUPIED = 255
 UNKNOWN = 0
 
+# Log-odds parameters 
+L_FREE = -0.4
+L_OCC = +0.85
+L_MIN = -4.0
+L_MAX = +4.0
 def printableProximity(proxStatus):
     parts = []
     if proxStatus & TOP_FRONT_LEFT_PROX_SET:
@@ -193,3 +200,4 @@ def printableProximity(proxStatus):
 smoothedScan = [0] * 360
 poses = [] # list of (timestamp, x, y, theta)
 explorerManager = None
+save_index = 0
