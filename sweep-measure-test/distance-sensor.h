@@ -1,3 +1,6 @@
+#ifndef DISTANCE_SENSOR_H
+#define DISTANCE_SENSOR_H
+
 #include <HCSR04.h>
 #include <Servo.h>
 
@@ -6,15 +9,6 @@
 #define PIN_SERVO 10
 #define SERVO_CENTRE 90               //Positioned straight forward (0 is full right, 180 is full left)
 #define MAX_DISTANCE_CAN_MEASURE 150  //Anything above this distance is suspect
-
-// Struct to hold arc info, which represent objects found in the forward field of view
-struct Arc {
-  uint8_t startIndex;  //0 is 90 right, 180 is 90 left
-  uint8_t endIndex;
-  uint16_t centreDirection;
-  uint16_t width;         //of arc
-  uint16_t avgDistance;  //distance
-};
 
 Servo servo;
 int servoPosition;
@@ -194,16 +188,15 @@ SWEEP_STATUS checkSurroundings(Arc arcs[], uint8_t maxObjects, uint8_t* bestDire
   }
   if (arcs[furthestObjectIndex].avgDistance <= MIN_DISTANCE_AHEAD) {
     //No point going any further, turn around and do another sweep
-
     //Check if any objects are within minimum safe distance, if so need to back out rather than rotate
-    // if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
-    //   retStatus = CANNOT_TURN;
-    // } else {
-    retStatus = BLOCKED_AHEAD;
-    // }
+    if (arcs[closestObjectIndex].avgDistance <= MIN_DISTANCE_TO_TURN) {
+      retStatus = CANNOT_TURN;
+    } else {
+      retStatus = BLOCKED_AHEAD;
+    }
   }
   *bestDirectionIndex = furthestObjectIndex;
   return retStatus;
 }
 
-
+#endif

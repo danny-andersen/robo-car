@@ -1,3 +1,10 @@
+#include <avr/wdt.h>
+#include "robo-car.h"
+
+bool leftGround() {
+  return false;
+}
+
 #include "distance-sensor.h"
 
 int maxDistance = 0;
@@ -8,7 +15,7 @@ bool sweepComplete = false;
 int steps = 1;
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   distanceSensorInit();
 }
 
@@ -49,13 +56,13 @@ void loop() {
     sweepComplete = true;
     servoPosition = SERVO_CENTRE;  //Re-centre when done
     //Now check the find direction function works
-    int furthestPosition = findFurthestDistance();
-    Serial.println();
-    Serial.print("Furthest position found to be: ");
-    Serial.print(furthestPosition);
-    Serial.print(" (in servo angle): ");
-    Serial.print(furthestPosition + 90);
-    Serial.println("------------------------------------------------");
+    // int furthestPosition = findFurthestDistance();
+    // Serial.println();
+    // Serial.print("Furthest position found to be: ");
+    // Serial.print(furthestPosition);
+    // Serial.print(" (in servo angle): ");
+    // Serial.print(furthestPosition + 90);
+    // Serial.println("------------------------------------------------");
   }
   servo.write(servoPosition);
   delay(20);
