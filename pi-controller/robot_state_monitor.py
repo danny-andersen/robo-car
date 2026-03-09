@@ -2,6 +2,7 @@ import config
 
 from proximity_scan import processProximityScan
 
+
 # This class is the upper brain of the robot that determines what to do based on what the robot is currently doing (robotState) and the latest LIDAR scan. It is responsible for:
 # - Deciding the next move for the robot when it is waiting for direction, by processing the latest map and frontier information from the explorer manager
 # - Updating the explorer manager with new LIDAR scans when the robot is sweeping or moving, so that the map and frontier information is kept
@@ -31,10 +32,11 @@ class RobotStateMonitor:
                 # then we have good confidence that the distance measured is accurate
                 driveStarted = False
                 move_while_rotating = False
+                rotated_during_drive = False
                 for state in self.statesSinceLastSweep:
                     if not driveStarted and state == config.ROBOT_STATE_NAMES.index("DRIVE"):
                         driveStarted = True
-                        move_confidence = 1.0  # Default confidence in distance travelled measurement
+                        move_confidence = 0.9  # Default confidence in distance travelled measurement
                     elif (state == config.ROBOT_STATE_NAMES.index("ROTATING") or \
                         state == config.ROBOT_STATE_NAMES.index("ROTATING_LEFT") or \
                             state == config.ROBOT_STATE_NAMES.index("ROTATING_RIGHT") or \
@@ -45,7 +47,8 @@ class RobotStateMonitor:
                           and driveStarted:
                         # We have started driving and then rotated, so distance travelled is likely to be inaccurate due to wheel slip during rotation, so discard it
                         print("Low confidence in distance travelled due to rotation in drive:", [config.ROBOT_STATE_NAMES[s] for s in self.statesSinceLastSweep])
-                        move_confidence = 0.4
+                        move_confidence = 0.2
+                        rotated_during_drive = True
                         break
                     if state == config.ROBOT_STATE_NAMES.index("ROTATING_FRONT_BLOCKED_BACKING_OUT") or \
                                             state == config.ROBOT_STATE_NAMES.index("ROTATING_REAR_BLOCKED_GO_FORWARD"):
@@ -56,10 +59,20 @@ class RobotStateMonitor:
                     print("Did not start driving - no distance travelled")
                     distance_travelled = 0
                     move_confidence = 0.9 #High degree of confidence that we did not actually move, but we can still use the current bearing to update SLAM during the sweep
-                if move_while_rotating:
+                if self.startDriveHeading is not None and move_confidence == 1.0:
+                    bearing_diff = abs(current_bearing - self.startDriveHeading)
+                    if bearing_diff > 30 and bearing_diff < 330:
+                        print("Poor confidence in distance travelled since last sweep due to large change in bearing during drive. Start bearing:", self.startDriveHeading, "Current bearing:", current_bearing)
+                        move_confidence = 0.6
+                    # Calculate an average bearing during the drive to use for SLAM updates, which may be more accurate than just using the current bearing at the end of the drive if there was some rotation during the drive
+                    avg_moving_bearing = config.average_heading(self.startDriveHeading, current_bearing)
+                    move_confidence = 0.9 # Reduce confidence slightly as we are now relying on the average bearing calculation which may be inaccurate if there was significant rotation during the drive, but it is likely to still be more accurate than just using the current bearing at the end of the drive in this case
+                    self.startDriveHeading = None
+                    print("Average moving bearing during drive:", avg_moving_bearing)
+                if rotated_during_drive:
                     if driveStarted:
                         print("Moved while rotating - low confidence in distance travelled due to rotation in drive:", [config.ROBOT_STATE_NAMES[s] for s in self.statesSinceLastSweep])
-                        move_confidence = 0.3
+                        move_confidence = 0.1
                     else:
                         #Zero distance travelled
                         distance_travelled = 0
@@ -68,20 +81,11 @@ class RobotStateMonitor:
                 # If the sequence contains BACK_OUT or OFF_GROUND, then we should discard the distance travelled since last sweep, as it is likely to be very inaccurate
                 if config.ROBOT_STATE_NAMES.index("BACK_OUT") in self.statesSinceLastSweep or config.ROBOT_STATE_NAMES.index("OFF_GROUND") in self.statesSinceLastSweep:
                     print("Low confidence in distance travelled since last sweep due to state sequence:", [config.ROBOT_STATE_NAMES[s] for s in self.statesSinceLastSweep])
-                    move_confidence = 0.3
+                    move_confidence = 0.2
                 if config.ROBOT_STATE_NAMES.index("INIT") in self.statesSinceLastSweep:
                     move_confidence = 1.0
                     distance_travelled = 0
                 # Finally check the final bearing at the end of the drive is reasonably close to the bearing at the start of the drive (within 30 degrees), otherwise we may have had significant rotation during the drive which would make the distance travelled measurement inaccurate, so discard it
-                if self.startDriveHeading is not None:
-                    bearing_diff = abs(current_bearing - self.startDriveHeading)
-                    if bearing_diff > 30 and bearing_diff < 330:
-                        print("Poor confidence in distance travelled since last sweep due to large change in bearing during drive. Start bearing:", self.startDriveHeading, "Current bearing:", current_bearing)
-                        move_confidence = 0.6
-                    # Calculate an average bearing during the drive to use for SLAM updates, which may be more accurate than just using the current bearing at the end of the drive if there was some rotation during the drive
-                    avg_moving_bearing = (current_bearing + self.startDriveHeading) / 2.0
-                    self.startDriveHeading = None
-                    print("Average moving bearing during drive:", avg_moving_bearing)
                 print("Distance travelled since last sweep:", distance_travelled, "mm with confidence", move_confidence)
             if robotState == config.ROBOT_STATE_NAMES.index("DRIVE"):
                 if self.startDriveHeading is None:
