@@ -1,4 +1,5 @@
 import glob
+import os
 import re
 
 import numpy as np
@@ -16,21 +17,8 @@ class OfflineViewer(QtWidgets.QMainWindow):
         self.setFocus()
         # Load data
         self.index = 0
-        self.map_history = self.load_map_history()
-        self.map = self.map_history[self.index]
-        self.map_shape = self.map.shape
-        print("Number of set pixels:", np.sum(self.map > 0))
-        print(np.unique(self.map, return_counts=True))  # Check unique values and their counts
-        self.poses = np.loadtxt("poses.csv", delimiter=",")
+        self.load_data()
 
-        # self.scans = np.load("scans.npy", allow_pickle=True)
-        # print("Number of scans:", len(self.scans))
-        # print("Scan shape:", self.scans[0].shape)
-
-        self.frontiers = np.load("frontiers.npy", allow_pickle=True)
-        print("Number of frontiers saved:", len(self.frontiers))
-        
-        
         # Create map widget
         self.map_widget = WorldMapWidget(
             map_pixels=self.map.shape[0],
@@ -52,6 +40,28 @@ class OfflineViewer(QtWidgets.QMainWindow):
         self.raise_()
         self.setFocus()
 
+    def load_data(self):
+        self.map_history = self.load_map_history()
+        if len(self.map_history) == 0:
+            print("No map files found in the current directory.")
+        else:
+            self.map = self.map_history[self.index]
+            self.map_shape = self.map.shape
+            print("Number of set pixels:", np.sum(self.map > 0))
+            print(np.unique(self.map, return_counts=True))  # Check unique values and their counts
+        self.poses = np.loadtxt("poses.csv", delimiter=",")
+
+        # self.scans = np.load("scans.npy", allow_pickle=True)
+        # print("Number of scans:", len(self.scans))
+        # print("Scan shape:", self.scans[0].shape)
+
+        #Check that frontiers.npy exists and load it
+        if os.path.exists("frontiers.npy"):
+            self.frontiers = np.load("frontiers.npy", allow_pickle=True)
+            print("Number of frontiers saved:", len(self.frontiers))
+        else:
+            print("frontiers.npy not found.")
+            self.frontiers = []
 
     def load_map_history(self):
         files = glob.glob(f"map_*.npy")
@@ -75,6 +85,7 @@ class OfflineViewer(QtWidgets.QMainWindow):
                 self.timer.start(2000)  # 0.5 FPS
         elif event.key() in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter):
             self.index = 0
+            self.load_data()  # Reload data to reset to initial state
             print("Reset to start")
         elif event.key() == QtCore.Qt.Key_Left:
                 self.index = max(0, self.index - 1)
