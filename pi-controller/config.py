@@ -201,3 +201,24 @@ smoothedScan = [0] * 360
 poses = [] # list of (timestamp, x, y, theta)
 explorerManager = None
 save_index = 0
+
+import math
+
+def average_heading(deg1, deg2):
+    # Convert degrees to radians
+    r1 = math.radians(deg1)
+    r2 = math.radians(deg2)
+
+    # Convert to unit vectors
+    x = math.cos(r1) + math.cos(r2)
+    y = math.sin(r1) + math.sin(r2)
+
+    # Compute average angle
+    avg = math.atan2(y, x)
+
+    # Convert back to degrees
+    avg_deg = math.degrees(avg)
+
+    # Normalize to 0–360
+    return (avg_deg + 360) % 360
+

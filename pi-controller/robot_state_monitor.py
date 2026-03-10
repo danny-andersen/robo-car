@@ -1,5 +1,6 @@
 import config
 
+from frontiers import ExplorationManager
 from proximity_scan import processProximityScan
 
 
@@ -11,7 +12,7 @@ class RobotStateMonitor:
         self.last_state = None
         self.save_queue = save_queue
         self.reader = reader
-        self.explorer_manager = explorer_manager
+        self.explorer_manager : ExplorationManager = explorer_manager
         self.statesSinceLastSweep = []
         self.startDriveHeading = None
 
@@ -98,6 +99,8 @@ class RobotStateMonitor:
                 config.piStatus["distanceToDrive"] = 0
             if (robotState == config.ROBOT_STATE_NAMES.index("WAITING_FOR_DIRECTION")):
                 # Robot is waiting for direction - process map to determine next move
+                # Use the scans received during the last sweep to update SLAM 
+                self.explorer_manager.slam.refine_pose_with_micro_map_and_merge()
                 #Firstly give it the obstacles from ultrasonic sweep to inform move veto
                 self.explorer_manager.receive_obstacles(config.obstacles)
                 # config.piStatus["directionToDrive"] = config.NO_SAFE_DIRECTION #Default to no safedirection, in case explorer manager fails to give one
@@ -123,7 +126,7 @@ class RobotStateMonitor:
             if (robotState == config.ROBOT_STATE_NAMES.index("SWEEP")):
                 # We are stationary during a sweep, so update SLAM
                 # print("Updating map with new scan during sweep. Current bearing:", current_bearing, "Distance travelled since last sweep:", distance_travelled, "mm with confidence", distance_confidence)
-                config.explorerManager.update_map(scan, current_bearing, avg_moving_bearing, distance_travelled, move_confidence)
+                self.explorer_manager.slam.update(scan, current_bearing, avg_moving_bearing, distance_travelled, move_confidence)
             else:
                 # Moving or rotating - process scan for obstacle avoidance only
                 processProximityScan(scan, robotState)
