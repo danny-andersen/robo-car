@@ -49,22 +49,22 @@ class OfflineViewer(QtWidgets.QMainWindow):
             self.map_shape = self.map.shape
             print("Number of set pixels:", np.sum(self.map > 0))
             print(np.unique(self.map, return_counts=True))  # Check unique values and their counts
-        self.poses = np.loadtxt("poses.csv", delimiter=",")
+        self.poses = np.loadtxt("slam_logs/poses.csv", delimiter=",")
 
-        # self.scans = np.load("scans.npy", allow_pickle=True)
+        # self.scans = np.load("slam_logs/scans.npy", allow_pickle=True)
         # print("Number of scans:", len(self.scans))
         # print("Scan shape:", self.scans[0].shape)
 
         #Check that frontiers.npy exists and load it
-        if os.path.exists("frontiers.npy"):
-            self.frontiers = np.load("frontiers.npy", allow_pickle=True)
+        if os.path.exists("slam_logs/frontiers.npy"):
+            self.frontiers = np.load("slam_logs/frontiers.npy", allow_pickle=True)
             print("Number of frontiers saved:", len(self.frontiers))
         else:
             print("frontiers.npy not found.")
             self.frontiers = []
 
     def load_map_history(self):
-        files = glob.glob(f"map_*.npy")
+        files = glob.glob(f"slam_logs/map_*.npy")
 
         # Sort numerically by index
         files.sort(key=lambda f: int(re.findall(r"map_(\d+)\.npy", f)[0]))
@@ -92,7 +92,8 @@ class OfflineViewer(QtWidgets.QMainWindow):
                 self.timer.stop()
                 self.update_view()
         elif event.key() == QtCore.Qt.Key_Right:
-            self.index = min(len(self.map_history) - 1, self.index + 1)
+            min_index = len(self.map_history) - 1 if self.map_history else 0       
+            self.index = min(min_index, self.index + 1)
             self.timer.stop()
             self.update_view()
         elif event.key() == QtCore.Qt.Key_D:
@@ -105,7 +106,7 @@ class OfflineViewer(QtWidgets.QMainWindow):
         super().mousePressEvent(event)
 
     def update_view(self):
-        if self.index >= len(self.poses):
+        if self.index >= len(self.poses) or self.index >= len(self.map_history):
             return
         
         if len(self.poses.shape) == 1:    

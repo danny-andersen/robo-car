@@ -2,6 +2,7 @@ import math
 import heapq
 import numpy as np
 
+from icp_slam_scan_to_map import ICP_SLAM
 from move_veto import MoveVeto
 import config
 
@@ -348,7 +349,7 @@ class Explorer:
 
 class ExplorationManager:
     def __init__(self, slam, resolution_m=0.02):
-        self.slam = slam
+        self.slam : ICP_SLAM = slam
         self.resolution_m = resolution_m
         self.veto = MoveVeto(slam, resolution_m)
         self.explorer = Explorer(resolution_m)
@@ -356,11 +357,6 @@ class ExplorationManager:
         self.obstacles = []   # ultrasonic obstacles from robot
         self.frontier_log = []   # log of frontier detection results
         
-    # ---------------------------------------------------------
-    # SLAM update (called continuously while robot is stationary)
-    # ---------------------------------------------------------
-    def update_map(self, scan_mm, bearing, avg_moving_bearing, distance_travelled, distance_confidence):
-        self.slam.update(scan_mm, bearing, avg_moving_bearing, distance_travelled, distance_confidence)
 
     # ---------------------------------------------------------
     # Robot sends ultrasonic sweep results
