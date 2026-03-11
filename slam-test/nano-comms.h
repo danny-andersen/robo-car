@@ -32,8 +32,6 @@
 #define FRONT_FRONT_PROX_SET 0x80 // Extra bit for rear-most proximity (lidar only)
 
 
-#define MAX_NUMBER_OF_OBJECTS_IN_SWEEP 20
-
 #define I2C_RETRY_CNT 2     //Number of times to try to send a command to the Nano or the PI
 
 uint8_t crc8(const uint8_t *data, size_t len) {

@@ -25,6 +25,13 @@ long forwardTimer = 0;
 bool triedOtherDirn = false;
 uint8_t rotationStuckCnt = 0; // Number of loops where we havent rotated
 
+int16_t directionToDrive = 0;
+uint8_t distanceToDrive = 0;
+float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
+Drive_State currentDriveState = STOPPED;
+
+bool drivingForward = false;  //Set to true when driving forward
+
 int16_t getRotation(int16_t current, int16_t required) {
   //Work out smallest rotation to required direction
   int16_t rotateRight = 0;
@@ -394,6 +401,27 @@ void drive(Motor_Direction direction, float straightAheadRad, uint8_t speed) {
 
   driveMotor(direction, rightSpeed, leftSpeed);
 }
+
+Robot_State adjustDirection() {
+  Robot_State returnState = ROTATING;
+  //Something low down caused the stop
+  if (checkFrontRightProximity(systemStatus.proximityState) && !checkFrontLeftProximity(systemStatus.proximityState)) {
+    //Rotate a bit left
+    directionToDrive -= 20;
+
+  } else if (checkFrontLeftProximity(systemStatus.proximityState) && !checkFrontRightProximity(systemStatus.proximityState)) {
+    //Rotate a bit to the right
+    directionToDrive += 20;
+  } else if (checkFrontProximity(systemStatus.proximityState)) {
+    //Need to backout a little and sweep
+    drivingForward = false;
+    currentDriveState = STOPPED;
+    sendStopMotorCmd();
+    returnState = BACK_OUT;
+  }
+  return returnState;
+}
+
 
 void backOut() {
   float forwardDirection = getCompassBearingRads();

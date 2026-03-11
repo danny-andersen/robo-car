@@ -30,7 +30,7 @@ uint16_t clearDistanceAhead() {
   return currentDistance;
 }
 
-void sweep(uint16_t* distances) {
+void sweep() {
   bool sweepComplete = false;
   int steps = 1;
   servoPosition = SERVO_CENTRE;
@@ -111,13 +111,13 @@ void sweep(uint16_t* distances) {
 }
 
 // Function returns number of arcs found, fills provided array
-int findObjectsInSweep(uint16_t arr[], int size, Arc arcs[], int maxArcs) {
+int findObjectsInSweep() {
   int arcCount = 0;
   int i = 0;
 
-  while (i < size && arcCount < maxArcs) {
+  while (i < NUMBER_OF_ANGLES_IN_SWEEP && arcCount < MAX_NUMBER_OF_OBJECTS_IN_SWEEP) {
     // Normalize distance (cap at 200)
-    uint16_t startVal = arr[i];
+    uint16_t startVal = distances[i];
 
     // Define tolerance range ±20%
     float lowerBound = startVal * 0.8;
@@ -129,8 +129,8 @@ int findObjectsInSweep(uint16_t arr[], int size, Arc arcs[], int maxArcs) {
     int count = 0;
 
     // Expand arc while values stay within ±20% of startVal
-    while (i < size) {
-      uint16_t val = arr[i];
+    while (i < NUMBER_OF_ANGLES_IN_SWEEP) {
+      uint16_t val = distances[i];
       if (val < lowerBound || val > upperBound) break;  // arc ends
       sum += val;
       count++;
@@ -139,14 +139,13 @@ int findObjectsInSweep(uint16_t arr[], int size, Arc arcs[], int maxArcs) {
 
     // Only consider arcs with width >= 15 degrees
     if (count >= 15) {
-      Arc arc;
-      arc.startIndex = start;
-      arc.endIndex = i - 1;
-      arc.width = count;
-      arc.centreDirection = start + int((count / 2) + 0.5);
-      arc.avgDistance = int((sum / count) + 0.5);
+      arcs[arcCount].startIndex = start;
+      arcs[arcCount].endIndex = i - 1;
+      arcs[arcCount].width = count;
+      arcs[arcCount].centreDirection = start + int((count / 2) + 0.5);
+      arcs[arcCount].avgDistance = int((sum / count) + 0.5);
 
-      arcs[arcCount++] = arc;
+      arcCount++;
     }
   }
 

@@ -146,7 +146,20 @@ SystemStatusStruct systemStatus;
 Robot_State lastRobotState = INIT;
 
 uint16_t distances[NUMBER_OF_ANGLES_IN_SWEEP];  //Gives a step size of 1 deg
-Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP];       // up to 20 arcs
+Arc arcs[MAX_NUMBER_OF_OBJECTS_IN_SWEEP] = {
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+  {0,0,0,0,0},
+};       // up to 20 arcs
 uint8_t furthestObjectIndex = 0;
 uint8_t numObjects = 0;
 

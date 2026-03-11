@@ -13,12 +13,6 @@
 #include "movement.h"
 #include "status.h"
 
-int16_t directionToDrive = 0;
-uint8_t distanceToDrive = 0;
-float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
-Drive_State currentDriveState = STOPPED;
-
-bool drivingForward = false;  //Set to true when driving forward
 
 unsigned long statusTimer = 0; //Total time since it was last booted
 unsigned long lastLoopTime = 0;  //Last time that we went through a loop
@@ -155,26 +149,6 @@ void loop() {
   } 
 }
 
-Robot_State adjustDirection() {
-  Robot_State returnState = ROTATING;
-  //Something low down caused the stop
-  if (checkFrontRightProximity(systemStatus.proximityState) && !checkFrontLeftProximity(systemStatus.proximityState)) {
-    //Rotate a bit left
-    directionToDrive -= 20;
-
-  } else if (checkFrontLeftProximity(systemStatus.proximityState) && !checkFrontRightProximity(systemStatus.proximityState)) {
-    //Rotate a bit to the right
-    directionToDrive += 20;
-  } else if (checkFrontProximity(systemStatus.proximityState)) {
-    //Need to backout a little and sweep
-    drivingForward = false;
-    currentDriveState = STOPPED;
-    sendStopMotorCmd();
-    returnState = BACK_OUT;
-  }
-  return returnState;
-}
-
 void getDirectionToDrive() {
   getPiStatusCmd();
   D_print(F("Direction: "));
@@ -196,12 +170,12 @@ void sweepAndRequestDirection() {
   //   Serial.print("Sweeping, straightahead = ");
   //   Serial.println(currentHeading);
   // }
-  sweep(distances);
+  sweep();
   // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
   for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
     arcs[i].avgDistance = 0;
   }
-  numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
+  numObjects = findObjectsInSweep();
   //Send list of obstacles to PI
   sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
   //Update robot state and send status, to trigger PI to determine next move to make

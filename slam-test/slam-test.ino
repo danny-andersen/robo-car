@@ -13,15 +13,11 @@
 #include "movement.h"
 #include "status.h"
 
-int16_t directionToDrive = 0;
-uint8_t distanceToDrive = 0;
-float currentDirectionRad = 0;  //This is the straightahead direction in Radians, used by the motor drive routine to keep dead ahead
-Drive_State currentDriveState = STOPPED;
-
-bool drivingForward = false;  //Set to true when driving forward
 
 unsigned long statusTimer = 0; //Total time since it was last booted
 unsigned long lastLoopTime = 0;  //Last time that we went through a loop
+
+int rotation_cnt = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -46,6 +42,11 @@ void setup() {
   } while (piCommsError || nanoCommsError);
   //Allow time for environment to clear
   delay(5000);
+  //Rotate through 360 to help the compass to calibrate
+  // aboutTurn();
+  //Start by pointing due north
+  // rotateTo(0);
+  delay(1000);
   systemStatus.currentBearing = getCompassBearing();
   //Send init status to PI for logging
   updateStatus();
@@ -59,6 +60,7 @@ void setup() {
 //Sweep (which tells the PI to do a LIDAR scan
 //and then request direction to drive, which waits for PI to process and save the scan
 //Wait 10 seconds - and then rotate the robot +45 degrees and repeat
+//After 8 rotations, drive to 0 for 30cm
 
 void loop() {
   lastLoopTime = millis();
@@ -94,7 +96,32 @@ void loop() {
     case ROTATING:
       //Rotate to that direction
       rotateTo(directionToDrive);
+      if (rotation_cnt > 0) {
+        systemStatus.robotState = SWEEP;
+      } else {
+        systemStatus.robotState = DRIVE;
+      }
+      break;
+    case UTURN_SWEEP:
+      //Turn the robot around and do a sweep
+      // if (Serial) Serial.println("U turn...");
+      aboutTurn();
       systemStatus.robotState = SWEEP;
+      break;
+    case BACK_OUT:
+      // Reverse for 0.5 second, and do another sweep
+      // if (Serial) Serial.println("Reversing");
+      backOut();
+      systemStatus.robotState = SWEEP;
+      break;
+    case DRIVE:
+      //Drive straight and scan (note that yaw should be reset)
+      if (!drivingForward) {
+        //Send starting motor to peripheral to start counting wheel rotation
+        sendStartMotorCmd();
+        drivingForward = true;
+      }
+      driveAndScan();
       break;
     case OFF_GROUND:
       //Do nothing
@@ -102,8 +129,17 @@ void loop() {
   }
 
   if (systemStatus.robotState == ROTATING) {
-    //Ignore what the PI returned - just rotate +45 degrees in this test
-    directionToDrive = normalise(systemStatus.currentBearing + 45);
+    if (rotation_cnt < 8) {
+      //Ignore what the PI returned - just rotate +45 degrees in this test
+      directionToDrive = normalise(systemStatus.currentBearing + 20);
+      // directionToDrive = 0;
+      rotation_cnt++;
+    } else {
+      //Drive north for 30cm
+      directionToDrive = 0;
+      distanceToDrive = 30;
+      rotation_cnt = 0;
+    }
     //Wait a bit to allow test to be terminated
     delay(3000);
   }
@@ -139,17 +175,26 @@ void sweepAndRequestDirection() {
   //   Serial.print("Sweeping, straightahead = ");
   //   Serial.println(currentHeading);
   // }
-  sweep(distances);
+  D_print("Bearing 1: ");
+  D_println(systemStatus.currentBearing);
+  sweep();
+  D_print("Bearing 1b: ");
+  D_println(systemStatus.currentBearing);
   // Array to hold arcs that represent similar distances, i.e. an object or obstacle in front
   for (int i = 0; i < MAX_NUMBER_OF_OBJECTS_IN_SWEEP; i++) {
     arcs[i].avgDistance = 0;
   }
-  numObjects = findObjectsInSweep(distances, NUMBER_OF_ANGLES_IN_SWEEP, arcs, MAX_NUMBER_OF_OBJECTS_IN_SWEEP);
+  D_print("Bearing 1c: ");
+  D_println(systemStatus.currentBearing);
+  numObjects = findObjectsInSweep();
   //Send list of obstacles to PI
+  D_print("Bearing 2: ");
+  D_println(systemStatus.currentBearing);
   sendObstacles(systemStatus.currentBearing, numObjects, &arcs[0]);
   //Update robot state and send status, to trigger PI to determine next move to make
-  piStatus.directionToDrive = 1000; //Reset current direction to drive
   systemStatus.robotState = WAITING_FOR_DIRECTION;
+  D_print("Bearing 3: ");
+  D_println(systemStatus.currentBearing);
   sendSystemStatus();
 }
 
@@ -172,3 +217,43 @@ void getFallBackDirection() {
   }
 }
 
+
+void driveAndScan() {
+  uint16_t distanceClear = clearDistanceAhead();
+  //Check speed, distance and for any immediate obstructions
+  getCombinedProximity();
+  bool wheelTrapped = ((systemStatus.leftWheelSpeed == 0 || systemStatus.rightWheelSpeed == 0) && systemStatus.distanceTravelled > 10);
+  // bool wheelTrapped = false;
+  // bool rolled = rollingOrPitching();
+  bool rolled = false;
+  bool hitSomething = checkFrontProximity(systemStatus.proximityState);
+  if (wheelTrapped || rolled) {
+    ////Weve hit something or one of the wheels aint turning
+    systemStatus.robotState = BACK_OUT;
+    sendStopMotorCmd();
+    currentDriveState = STOPPED;
+    drivingForward = false;
+  } else if (hitSomething) {
+    systemStatus.robotState = adjustDirection();
+  } else if (systemStatus.distanceTravelled >= distanceToDrive || distanceClear <= MIN_DISTANCE_TO_MOVE) {
+    //Driven far enough - stop
+    drive(STOP, currentDirectionRad, 0);
+    currentDriveState = STOPPED;
+    sendStopMotorCmd();
+    //Reached the end of the current drive - do another sweep
+    drivingForward = false;
+    systemStatus.robotState = SWEEP;
+  } else if (distanceClear > 100) {
+    //Lots of space
+    drive(FORWARD, currentDirectionRad, 100);
+    currentDriveState = DRIVE_FORWARD;
+  } else if (distanceClear < 100 && distanceClear > 50) {
+    //Slow
+    drive(FORWARD, currentDirectionRad, 75);
+    currentDriveState = DRIVE_FORWARD;
+  } else {
+    //Dead slow
+    drive(FORWARD, currentDirectionRad, 50);
+    currentDriveState = DRIVE_FORWARD;
+  }
+}
