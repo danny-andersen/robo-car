@@ -1,4 +1,5 @@
 import config
+from datetime import datetime
 
 from frontiers import ExplorationManager
 from proximity_scan import processProximityScan
@@ -92,7 +93,7 @@ class RobotStateMonitor:
                         print("Moved while rotating without starting drive - low confidence in distance travelled due to rotation without drive:", [config.ROBOT_STATE_NAMES[s] for s in self.statesSinceLastSweep])
                 # If the sequence contains BACK_OUT or OFF_GROUND, then we should discard the distance travelled since last sweep, as it is likely to be very inaccurate
                 if config.ROBOT_STATE_NAMES.index("BACK_OUT") in self.statesSinceLastSweep or config.ROBOT_STATE_NAMES.index("OFF_GROUND") in self.statesSinceLastSweep:
-                    print("Low confidence in distance travelled since last sweep due to state sequence:", [config.ROBOT_STATE_NAMES[s] for s in self.statesSinceLastSweep])
+                    print(f"{datetime.now()}: Low confidence in distance travelled since last sweep due to state sequence:", [config.ROBOT_STATE_NAMES[s] for s in self.statesSinceLastSweep])
                     self.startDriveHeading = None # Clear the start drive heading as we can no longer rely on it for SLAM updates during the sweep if we rotated during the drive
                     self.distance_travelled_since_last_sweep = 0
                     self.move_confidence = 0.2
@@ -100,7 +101,7 @@ class RobotStateMonitor:
                     self.move_confidence = 0.0
                     self.distance_travelled_since_last_sweep = 0
                 # Finally check the final bearing at the end of the drive is reasonably close to the bearing at the start of the drive (within 30 degrees), otherwise we may have had significant rotation during the drive which would make the distance travelled measurement inaccurate, so discard it
-                print(f"Distance travelled since last sweep: {self.distance_travelled_since_last_sweep} mm on avg bearing {self.avg_moving_bearing} with confidence {self.move_confidence}")
+                print(f"{datetime.now()}: Distance travelled since last sweep: {self.distance_travelled_since_last_sweep} mm on avg bearing {self.avg_moving_bearing} with confidence {self.move_confidence}")
             if robotState == config.ROBOT_STATE_NAMES.index("DRIVE"):
                 if self.startDriveHeading is None:
                     self.startDriveHeading = current_bearing
@@ -113,16 +114,19 @@ class RobotStateMonitor:
             if (robotState == config.ROBOT_STATE_NAMES.index("WAITING_FOR_DIRECTION")):
                 # Robot is waiting for direction - process map to determine next move
                 # Use the scans received during the last sweep to update SLAM 
+                print(f"{datetime.now()}: Refining pose with micro map and merging before determining next move for sweep")
                 self.explorer_manager.slam.refine_pose_with_micro_map_and_merge()
                 #Firstly give it the obstacles from ultrasonic sweep to inform move veto
+                print(f"{datetime.now()}: Sending obstacles to explorer manager")
                 self.explorer_manager.receive_obstacles(config.obstacles)
                 # config.piStatus["directionToDrive"] = config.NO_SAFE_DIRECTION #Default to no safedirection, in case explorer manager fails to give one
                 #Set PI status for direction and distance to move, which will be sent to robot on the next status response 
+                print(f"{datetime.now()}: Determining next move for robot based on current map and frontier information...")
                 (bearing, distance) = self.explorer_manager.get_next_move()
                 config.piStatus["directionToDrive"] = int(bearing)
                 config.piStatus["distanceToDrive"] = int(distance)
                 self.startDriveHeading = None
-                print("Move:", config.piStatus["directionToDrive"], "deg for", config.piStatus["distanceToDrive"]   , "mm")
+                print(f"{datetime.now()}: Move: {config.piStatus['directionToDrive']} deg for {config.piStatus['distanceToDrive']} mm")
                 # Trigger a save of the map and targets for debugging and analysis
                 self.save_queue.put("save")
             self.last_state = robotState
