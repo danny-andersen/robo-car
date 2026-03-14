@@ -3,6 +3,8 @@ import threading
 import time
 import numpy as np
 import math
+import json
+import os
 
 import config
 from robot_state_monitor import RobotStateMonitor
@@ -19,19 +21,45 @@ def save_worker_thread(slam, save_queue):
             print("Saving SLAM map and poses...")
             # Extract map + pose safely
             map = slam.get_map().copy()
-            # Save pose 
-            t = time.time()
-            x, y, th = slam.get_pose()
-            config.poses.append((t, x, y, th))        
-
+            explorationManager: ExplorationManager = config.explorerManager
+            clusters = explorationManager.clusters
+            chosen_target = explorationManager.target
+            next_waypoint = explorationManager.next_waypoint
+            pose = slam.get_pose()  # (x, y, theta)
             # Perform slow disk writes
-            np.save(f"./slam_logs/map_{config.save_index:04d}.npy", map)
-            # Append pose to CSV 
-            with open("./slam_logs/poses.csv", "a") as f:
-                f.write(f"{t},{x},{y},{th}\n")  
+            np.save(f"{config.output_dir}/map_{config.save_index:04d}.npy", map)
+
+            # Save pose and frontier data with timestamp
+            t = time.time()
+
+            data = {
+                "timestamp": t,
+                "pose_index": config.save_index,
+                "robot_pose": pose,
+                "frontier_clusters": clusters,
+                "chosen_target": chosen_target,
+                "next_waypoint": next_waypoint,
+                "status": (config.systemStatus["tempC"],config.systemStatus["humidity"], config.systemStatus["batteryVoltage"]),
+                "obstacles": config.obstacles,
+            }
+
+            fname = f"clusters_{config.save_index:05d}.json"
+            path = os.path.join(config.output_dir, fname)
+
+            with open(path, "w") as f:
+                json.dump(data, f, indent=2)
+
+            # config.poses.append((t, x, y, th))        
+
+            # # Append pose to CSV 
+            # with open("./slam_logs/poses.csv", "a") as f:
+            #     f.write(f"{t},{x},{y},{th}\n")  
 
             # np.save("./slam_logs/scans.npy", np.array(slam.scan_log, dtype=object))
-            np.save(f"./slam_logs/frontiers_{config.save_index:04d}.npy", np.array(config.explorerManager.frontier_log, dtype=object))            
+            # np.save(f"./slam_logs/clusters_{config.save_index:04d}.npy", np.array(config.explorerManager.clusters), dtype=object)            
+            # with open("./slam_logs/targets.csv", "a") as f:
+            #     f.write(f"{config.explorerManager.target[0]},{config.explorerManager.target[1]}\n")  
+
             
             config.save_index += 1
             

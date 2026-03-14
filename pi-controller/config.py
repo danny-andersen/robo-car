@@ -201,6 +201,7 @@ smoothedScan = [0] * 360
 poses = [] # list of (timestamp, x, y, theta)
 explorerManager = None
 save_index = 0
+output_dir = "./slam_logs"
 
 import math
 

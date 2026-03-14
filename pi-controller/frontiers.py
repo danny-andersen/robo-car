@@ -355,8 +355,9 @@ class ExplorationManager:
         self.explorer = Explorer(resolution_m)
 
         self.obstacles = []   # ultrasonic obstacles from robot
-        self.frontier_log = []   # log of frontier detection results
-        
+        self.clusters = []    # current frontier clusters
+        self.target = None    # current target frontier (gx, gy)
+        self.next_waypoint = None # next waypoint on path to target (gx, gy)
 
     # ---------------------------------------------------------
     # Robot sends ultrasonic sweep results
@@ -402,9 +403,9 @@ class ExplorationManager:
         # ------------------------------------------------------------
         # 4. Cluster occlusion frontiers
         # ------------------------------------------------------------
-        clusters = self.explorer.cluster_frontiers(frontier_pixels)
-        print(f"Clustered into {len(clusters)} frontier clusters")
-        if not clusters:
+        self.clusters = self.explorer.cluster_frontiers(frontier_pixels)
+        print(f"Clustered into {len(self.clusters)} frontier clusters")
+        if not self.clusters:
             print("No frontier clusters found, cannot explore further")
             return (config.NO_SAFE_DIRECTION, 0)
 
@@ -412,11 +413,13 @@ class ExplorationManager:
         # 5. Pick nearest cluster centroid (local exploration first)
         # ------------------------------------------------------------
         target_gx, target_gy = self.explorer.pick_nearest_cluster(
-            clusters,
+            self.clusters,
             robot_x_mm,
             robot_y_mm
         )
 
+        self.target= (target_gx, target_gy)
+        print(f"Chosen target grid: {(target_gx, target_gy)}")
         # ------------------------------------------------------------
         # 6. Plan A* path to the chosen cluster centroid
         # ------------------------------------------------------------
@@ -442,13 +445,15 @@ class ExplorationManager:
         # ------------------------------------------------------------
         if next_move:
             world_bearing = self.slam.convert_bearing_from_slam_frame(next_move[0])
+            self.next_waypoint = (world_bearing, next_move[1])  # Store for logging
             next_move = (world_bearing, next_move[1]/10.0)  # convert mm to cm
-            print(f"Next move (bearing, distance_mm): {next_move}")
+            print(f"Next move (bearing, distance_mm): {self.next_waypoint} to target {target_gx, target_gy}")
             return next_move
         else:
             # No safe move available - Let the robot decide what to do (e.g. rotate in place)
             # return (config.NO_SAFE_DIRECTION, 0)  # No direction, no distance  
             print("No safe move found, returning NO_SAFE_DIRECTION") 
+            self.world_bearing = config.NO_SAFE_DIRECTION
             return (config.NO_SAFE_DIRECTION, 0)  # No direction, no distance   
 
 

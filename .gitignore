@@ -61,4 +61,4 @@ pi-controller/robo-status.html
 lidar-viewer/venv/
 lidar-viewer/__pycache__/
 **/*.npy
-**/poses.csv
+**/*.json
