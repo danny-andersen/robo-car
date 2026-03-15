@@ -137,13 +137,6 @@ class ICP_SLAM:
         # Distance field (Euclidean)
         self.dist_field = distance_transform_edt(~self.occ_mask) * self.resolution_m
     
-    # def update_internal_maps(self):
-    #     """Recompute probability, occupancy mask, and distance field."""
-    #     self.prob = 1.0 / (1.0 + np.exp(-self.L))
-    #     self.occ_mask = self.prob >= self.p_occ
-    #     # Distance field from occupancy grid
-    #     self.dist_field = distance_transform_edt(~self.occ_mask) * (self.resolution_m * 1000)
-        
     # ---------------------------------------------------------
     # Accessors
     # ---------------------------------------------------------
@@ -175,25 +168,6 @@ class ICP_SLAM:
         iy = self.map_pixels - 1 - iy  # flip Y so +Y world is up in the image
         return ix, iy
     
-    # # ---------------------------------------------------------
-    # # Pose scoring using distance field (lower distance = better)
-    # # ---------------------------------------------------------
-    # def score_pose(self, pts, x_mm, y_mm, theta):
-    #     if pts.shape[0] == 0:
-    #         return -np.inf
-
-    #     wx, wy = self.transform_points_world(pts, x_mm, y_mm, theta)
-    #     ix, iy = self.world_to_grid(wx, wy)
-
-    #     mask = (ix >= 0) & (ix < self.size) & (iy >= 0) & (iy < self.size)
-    #     if not np.any(mask):
-    #         return -np.inf
-
-    #     ix = ix[mask]
-    #     iy = iy[mask]
-
-    #     # Negative sum of distances → higher score = better alignment
-    #     return -np.sum(self.dist[iy, ix])
 
     # ------------------------------------------------------------
     # Scan scoring using distance field
@@ -246,62 +220,6 @@ class ICP_SLAM:
 
         return best_pose, base_score, best_score
 
-
-    # ------------------------------------------------------------
-    # 1. Build local micro-map from stationary scans
-    # ------------------------------------------------------------
-
-    # def build_local_map_from_points(
-    #         self,
-    #         pose_seed,
-    #         size_m=4.0,
-    #         resolution_m=0.02,
-    #         occ_logodds=2.0,
-    #         free_logodds=-0.5
-    #     ):
-    #     """
-    #     Build a local micro-map using the SAME logic as update_map():
-    #     - robot at center cell
-    #     - pts in robot frame (x=forward, y=right)
-    #     - use transform_points_world
-    #     - use world_to_grid
-    #     - use Bresenham
-    #     """
-
-    #     local = LocalMap(size_m=size_m, resolution_m=resolution_m)
-    #     cell_mm = resolution_m * 1000
-
-    #     # Robot is at the center of the local map
-    #     rx = local.pixels // 2
-    #     ry = local.pixels // 2
-
-    #     x0, y0, th0 = pose_seed
-
-    #     for pts in self.scans_mm_stationary:
-
-    #         # Convert robot-frame → world-frame using the SAME function as old pipeline
-    #         wx, wy = self.transform_points_world(pts, x0, y0, th0)
-
-    #         # Convert world → local grid using SAME logic as world_to_grid
-    #         lx = (wx / 1000.0) / local.resolution_m
-    #         ly = (wy / 1000.0) / local.resolution_m
-    #         hx = lx.astype(int)
-    #         hy = (local.pixels - 1 - ly).astype(int)
-
-    #         for cx, cy in zip(hx, hy):
-    #             if not (0 <= cx < local.pixels and 0 <= cy < local.pixels):
-    #                 continue
-
-    #             # Free cells
-    #             for fx, fy in bresenham(rx, ry, cx, cy)[:-1]:
-    #                 local.L[fy, fx] += free_logodds
-
-    #             # Occupied cell
-    #             local.L[cy, cx] += occ_logodds
-
-    #         np.clip(local.L, self.L_min, self.L_max, out=local.L)
-
-    #     return local
 
     def build_local_map_from_points(
             self,
@@ -444,40 +362,6 @@ class ICP_SLAM:
         self.L = np.clip(self.L, self.L_min, self.L_max)
 
 
-     # ---------------------------------------------------------
-    # Map update at current pose (ray-cast free + mark hits)
-    # ---------------------------------------------------------
-    # def update_map(self, pts):
-    #     if pts.shape[0] == 0:
-    #         return
-
-    #     # Robot position in grid coords
-    #     rx, ry = self.world_to_grid(
-    #         np.array([self.x]),
-    #         np.array([self.y])
-    #     )
-    #     rx = int(rx[0])
-    #     ry = int(ry[0])
-
-    #     wx, wy = self.transform_points_world(pts, self.x, self.y, self.theta)
-    #     ix, iy = self.world_to_grid(wx, wy)
-
-    #     for hx, hy in zip(ix, iy):
-    #         if not (0 <= hx < self.size and 0 <= hy < self.size):
-    #             continue
-
-    #         # Ray from robot to hit
-    #         ray = bresenham(rx, ry, hx, hy)
-
-    #         # Free cells along the ray (except the last)
-    #         for cx, cy in ray[:-1]:
-    #             if 0 <= cx < self.size and 0 <= cy < self.size:
-    #                 if self.map[cy, cx] == config.UNKNOWN:
-    #                     self.map[cy, cx] = config.FREE
-
-    #         # Hit cell = occupied
-    #         self.map[hy, hx] = config.OCCUPIED
-
     # --------------------------------------------------------- 
     # Log-odds map update 
     # --------------------------------------------------------- 
@@ -570,32 +454,6 @@ class ICP_SLAM:
 
         return x, y, theta, error
     
-    # def relocalise_translation(self, scan_xy, occ_img, theta, guess_xy_mm,
-    #                         search_radius_mm=800, step_mm=40):
-    #     """
-    #     scan_points: list/array of (range_mm, angle_rad) or (x_mm, y_mm) in robot frame
-    #     occ_img: occupancy uint8 (0=occ, 255=free, mid=unknown)
-    #     theta: world-frame heading (rad), trusted from IMU
-    #     guess_xy_mm: (x_mm, y_mm) last known pose
-    #     """
-
-    #     best_score = -1e18
-    #     best_x, best_y = guess_xy_mm
-
-    #     # Search a window around the last pose
-    #     for dx_mm in range(-search_radius_mm, search_radius_mm + 1, step_mm):
-    #         for dy_mm in range(-search_radius_mm, search_radius_mm + 1, step_mm):
-    #             x_mm = guess_xy_mm[0] + dx_mm
-    #             y_mm = guess_xy_mm[1] + dy_mm
-
-    #             score = self.score_scan_at_pose(scan_xy, x_mm, y_mm, theta)
-
-    #             if score > best_score:
-    #                 best_score = score
-    #                 best_x, best_y = x_mm, y_mm
-
-    #     return best_x, best_y
-
     def local_relocalise(self, pts, pose_guess,
                         trans_range_mm=200.0,
                         trans_step_mm=20.0,
@@ -655,26 +513,6 @@ class ICP_SLAM:
                         best_pose = (x0 + dx, y0 + dy, th)
 
         return (*best_pose, best_score)
-
-    # def global_relocalise(self, scan_xy, occ_img, imu_theta, last_good_xy):
-    #     best = None
-    #     best_score = -1e18
-
-    #     for dtheta in np.linspace(-math.radians(20), math.radians(20), 9):
-    #         theta = imu_theta + dtheta
-
-    #         for dx_mm in range(-1200, 1201, 80):
-    #             for dy_mm in range(-1200, 1201, 80):
-    #                 x = last_good_xy[0] + dx_mm
-    #                 y = last_good_xy[1] + dy_mm
-
-    #                 score = self.score_scan_at_pose(scan_xy, occ_img, x, y, theta)
-
-    #                 if score > best_score:
-    #                     best_score = score
-    #                     best = (x, y, theta)
-
-    #     return best  # (x, y, theta)
 
     def global_relocalise(self, pts,
                         rot_step_deg=2.0,
@@ -871,79 +709,4 @@ class ICP_SLAM:
             self.theta = math.radians(self.heading_deg)
             self.avg_move_heading_deg = 90.0 - avg_move_heading_deg
             self.move_confidence = move_confidence
-
-    # ---------------------------------------------------------
-    # Main update: scan + IMU heading (degrees, 0°=north, CW+)
-    # ---------------------------------------------------------
-    # def update(self, scan_mm, heading_deg, avg_move_heading_deg, distance_mm, move_confidence=1.0):
-    #     pts = self.scan_to_points(scan_mm)
-    #     if pts.shape[0] == 0:
-    #         return
-
-    #     # print("Raw compass:", heading_deg)
-    #     # Convert compass heading to SLAM frame: 0°=north, CCW+
-    #     bearing_deg = 90.0 - heading_deg
-    #     avg_move_bearing_deg = 90.0 - avg_move_heading_deg
-    #     self.theta = math.radians(bearing_deg)
-    #     theta_pred = self.theta
-
-    #     if self.first_scan_count == 0:
-    #         # Skip pose update for the first few scans to allow map to build up, as ICP is likely to fail when the map is very sparse and not very accurate yet
-    #         relocalise = False
-    #         # if distance_mm > 0:
-    #             # Robot has moved since last scan - predict new pose based on heading + distance
-    #         dx = move_confidence * distance_mm * math.cos(math.radians(avg_move_bearing_deg))
-    #         dy = move_confidence * distance_mm * math.sin(math.radians(avg_move_bearing_deg))
-
-    #         x_pred = self.x + dx
-    #         y_pred = self.y + dy
-
-    #         # if move_confidence > 0.2:
-    #         # Try ICP refinement of the predicted pose based on the new scan and current map, to correct for any drift in heading or position during the drive. We can trust ICP more when we have high confidence in movement, and less when we have low confidence in movement (e.g. due to wheel slip), by adjusting the ICP error threshold for accepting ICP results accordingly.
-    #         x_icp, y_icp, theta_icp, icp_error = self.icp_scan_to_map( pts, (x_pred, y_pred, theta_pred), move_confidence )
-    #         icp_threshold = self.icp_good_threshold * (0.5 + 0.5 * move_confidence)  # Adjust ICP threshold based on move confidence (lower confidence → be more lenient with ICP)
-        
-    #         if icp_error < icp_threshold: 
-    #             # Normal case 
-    #             self.x, self.y, self.theta = x_icp, y_icp, theta_icp 
-    #         else:
-    #             # ICP failed → global relocalisation (translation only) 
-    #             if move_confidence < 0.5:
-    #                 print("ICP failed with error", icp_error, "exceeding threshold", icp_threshold, "- doing relocalisation with low confidence in movement:", move_confidence)
-    #                 relocalise = True
-    #             else:
-    #                 #We were confident in the move so this must be a dodgy scan - ignore it and keep previous pose, rather than risk a bad relocalisation based on a bad scan when we have reasonably good confidence in movement since last scan
-    #                 print("Dodgy SCAN - ICP failed with error", icp_error, "exceeding threshold", icp_threshold, "- ignoring scan and keeping previous pose with reasonably good confidence in movement:", move_confidence)
-    #                 return
-    #         # else:
-    #         #     # Force a relocalisation when we have no confidence in movement, as the pose guess is likely to be very inaccurate
-    #         #     relocalise = True
-
-    #         if relocalise:
-    #             if distance_mm > 500:
-    #                 print("Performing global relocalisation with no confidence in movement:", move_confidence)
-    #                 best_x, best_y, best_theta = self.global_relocalise(pts, self.L, theta_pred, (self.x, self.y))
-    #             else:
-    #                 print("Performing local relocalisation around predicted pose with low confidence in movement:", move_confidence)
-    #                 search_radius = 300  + int(2.0 * distance_mm)  # Increase search radius by the distance travelled since last scan, to account for increased uncertainty in pose
-    #                 best_x, best_y = self.relocalise_translation( pts, self.L, theta_pred, (x_pred, y_pred), search_radius_mm=search_radius, step_mm=40 ) 
-    #                 best_theta = theta_pred
-    #             # Final ICP refine after relocalisation
-    #             x_ref, y_ref, theta_ref, _ = self.icp_scan_to_map(
-    #                 pts, (best_x, best_y, best_theta), 0.0)
-    #             self.x, self.y, self.theta = x_ref, y_ref, theta_ref
-    #         # else:
-    #         #     # print("Robot is stationary - performing ICP-based pose refinement with high confidence in heading and no movement information")
-    #         #     (new_x, new_y, new_th), old_score, new_score = \
-    #         #         self.refine_pose_scan_to_map(pts)
-    #         #     if new_score > old_score:
-    #         #         self.x = new_x
-    #         #         self.y = new_y
-    #         #         self.theta = new_th
-
-    #     else:
-    #         self.first_scan_count -= 1    
-    #     # Update map with scan at refined pose
-    #     self.update_map(pts)
-    #     self.update_internal_maps()
 
