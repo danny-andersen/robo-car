@@ -5,33 +5,12 @@ from scipy.ndimage import distance_transform_edt
 import config
 
 
-def bresenham(x0, y0, x1, y1):
-    points = []
-    dx = abs(x1 - x0)
-    dy = -abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    err = dx + dy
-
-    while True:
-        points.append((x0, y0))
-        if x0 == x1 and y0 == y1:
-            break
-        e2 = 2 * err
-        if e2 >= dy:
-            err += dy
-            x0 += sx
-        if e2 <= dx:
-            err += dx
-            y0 += sy
-    return points
-
 # ------------------------------------------------------------
 # Local micro-map structure
 # ------------------------------------------------------------
 
 class LocalMap:
-    def __init__(self, size_m=4.0, resolution_m=0.02):
+    def __init__(self, size_m=4.0, resolution_m=config.map_resolution_m):
         self.resolution_m = resolution_m
         self.size_m = size_m
         self.pixels = int(size_m / resolution_m)
@@ -56,13 +35,14 @@ class LocalMap:
 
 
 class ICP_SLAM:
-    def __init__(self, map_size_m=6.0, resolution=0.02):
+    def __init__(self, map_size_m=config.map_size, resolution=config.map_resolution_m):
         """
         map_size_m: physical width/height of map in meters
         resolution: meters per cell
         """
         self.resolution_m = resolution
         self.map_pixels = int(map_size_m / resolution)  # pixels per side
+        print(f"ICP SLAM map pixels {self.map_pixels}")
         
         # Log-odds grid
         self.L = np.zeros((self.map_pixels, self.map_pixels),dtype=np.float32)
@@ -157,18 +137,6 @@ class ICP_SLAM:
         wy = y_mm + (s * pts[:, 0] + c * pts[:, 1])
         return wx, wy
 
-    # ---------------------------------------------------------
-    # World mm → grid indices
-    # ---------------------------------------------------------
-    def world_to_grid(self, wx, wy):
-        x_m = wx / 1000.0
-        y_m = wy / 1000.0
-        ix = (x_m / self.resolution_m).astype(int)
-        iy = (y_m / self.resolution_m).astype(int)
-        iy = self.map_pixels - 1 - iy  # flip Y so +Y world is up in the image
-        return ix, iy
-    
-
     # ------------------------------------------------------------
     # Scan scoring using distance field
     # ------------------------------------------------------------
@@ -249,7 +217,7 @@ class ICP_SLAM:
                 if not (0 <= cx < local.pixels and 0 <= cy < local.pixels):
                     continue
 
-                for fx, fy in bresenham(rx, ry, cx, cy)[:-1]:
+                for fx, fy in config.bresenham(rx, ry, cx, cy):
                     local.L[fy, fx] += free_logodds
 
                 local.L[cy, cx] += occ_logodds
@@ -307,7 +275,7 @@ class ICP_SLAM:
                     wx = wx_base + dx
                     wy = wy_base + dy
 
-                    gx, gy = self.world_to_grid(wx, wy)
+                    gx, gy = config.world_to_grid(wx, wy, self.map_pixels, self.resolution_m)
 
                     valid = (gx >= 0) & (gx < w) & (gy >= 0) & (gy < h)
                     if not np.any(valid):
@@ -350,7 +318,7 @@ class ICP_SLAM:
         wy = y + (s * lx_mm + c * ly_mm)
 
         # world → map grid (identical to world_to_grid)
-        gx, gy = self.world_to_grid(wx, wy)
+        gx, gy = config.world_to_grid(wx, wy, self.map_pixels)
 
         valid = (gx >= 0) & (gx < self.map_pixels) & (gy >= 0) & (gy < self.map_pixels)
         gx = gx[valid]
@@ -366,15 +334,15 @@ class ICP_SLAM:
     # Log-odds map update 
     # --------------------------------------------------------- 
     def update_map(self, pts):
-        rx, ry = self.world_to_grid(np.array([self.x]), np.array([self.y]))
+        rx, ry = config.world_to_grid(np.array([self.x]), np.array([self.y]), self.map_pixels)
         rx, ry = int(rx[0]), int(ry[0])
-        wx, wy = self.transform_points_world(pts, self.x, self.y, self.theta)
-        ix, iy = self.world_to_grid(wx, wy)
+        wx, wy = self.transform_points_world(pts, self.x, self.y, self.theta, self.map_pixels)
+        ix, iy = config.world_to_grid(wx, wy)
         for hx, hy in zip(ix, iy): 
             if not (0 <= hx < self.map_pixels and 0 <= hy < self.map_pixels):
                 continue
             # Free cells
-            for cx, cy in bresenham(rx, ry, hx, hy)[:-1]:
+            for cx, cy in config.bresenham(rx, ry, hx, hy):
                 self.L[cy, cx] += config.L_FREE 
                 # Occupied cell
                 self.L[hy, hx] += config.L_OCC

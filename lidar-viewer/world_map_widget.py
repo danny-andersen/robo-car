@@ -64,6 +64,7 @@ class WorldMapWidget(QtWidgets.QWidget):
         self.target_history = []
         self.status_history = []
         self.obstacle_history = []
+        self.candidate_target_history = []
         self._map = np.zeros((self.map_pixels, self.map_pixels), dtype=np.uint8)
         self._pose = (0.0, 0.0, 0.0)        # x_mm, y_mm, theta_rad
         self._map_image = None
@@ -87,10 +88,10 @@ class WorldMapWidget(QtWidgets.QWidget):
             return
         
         # print(f"Current index {self.index}")
-        if len(self.poses) == 1:    
-            x, y, th = self.poses
-        else:
-            x, y, th = self.poses[self.index]
+        # if len(self.poses) == 1:    
+        #     x, y, th = self.poses
+        # else:
+        x, y, th = self.poses[self.index]
             
         self._map = self.map_history[self.index]
         # print(f"No of Clusters: {len(self.cluster_history[self.index]) if len(self.cluster_history) > self.index else 'N/A'}")
@@ -155,12 +156,18 @@ class WorldMapWidget(QtWidgets.QWidget):
             self.timer.start(2000)  # 0.5 FPS
             self.update_view()
         elif event.key() == QtCore.Qt.Key_Left:
-                self.index = max(0, self.index - 1)
+                if self.index == 0:
+                    self.index = len(self.map_history) - 1
+                else:
+                    self.index = max(0, self.index - 1)
                 self.timer.stop()
                 self.update_view()
         elif event.key() == QtCore.Qt.Key_Right:
-            min_index = len(self.map_history) - 1 if self.map_history else 0       
-            self.index = min(min_index, self.index + 1)
+            if self.index == len(self.map_history) - 1:
+                self.index = 0
+            else:
+                min_index = len(self.map_history) - 1 if self.map_history else 0       
+                self.index = min(min_index, self.index + 1)
             self.timer.stop()
             self.update_view()
         elif event.key() == QtCore.Qt.Key_D:
@@ -201,6 +208,35 @@ class WorldMapWidget(QtWidgets.QWidget):
         self.current_index = index
         self.update()
 
+    def gain_to_color(self, gain, min_gain, max_gain):
+        t = (gain - min_gain) / (max_gain - min_gain + 1e-6)
+        r = int(255 * t)
+        g = int(255 * (1 - t))
+        return QColor(r, g, 0)  # red→green
+
+    def draw_candidate_poses(self, painter, target_rect):
+
+        if len(self.candidate_target_history) < self.index:            
+            return
+
+        candidate_poses = self.candidate_target_history[self.index]
+        if candidate_poses is None or len(candidate_poses) == 0:
+            return
+        gains = [g for (_, _, g) in candidate_poses]
+        min_gain, max_gain = min(gains), max(gains)
+
+        for (px, py, gain) in self.candidate_poses:
+            color = self.gain_to_color(gain, min_gain, max_gain)
+            painter.setPen(QPen(color, 2))
+            painter.setBrush(color)
+
+            # world → map pixel → screen
+            gx = px / self.resolution
+            gy = (self.map_pixels - 1) - (py / self.resolution)
+            sx, sy = self.convert_point_to_map_coords((gx, gy), target_rect)
+            
+            painter.drawEllipse(QPointF(sx, sy), 5, 5)
+
 
     def draw_cluster_centroids(self, painter, target_rect):
         for cluster in self.cluster_history[self.index]:
@@ -219,22 +255,26 @@ class WorldMapWidget(QtWidgets.QWidget):
 
     def draw_chosen_target(self, painter, target_rect):
         
-        tx, ty = self.target_history[self.index]
-        tx = tx * self.resolution
-        ty = ty * self.resolution
-        print(f"Target is {tx, ty}")
+        if len(self.target_history) > self.index:
+            tx, ty = self.target_history[self.index]
+            tx = tx * self.resolution
+            ty = ty * self.resolution
+            # print(f"Target is {tx, ty}")
 
-        # world → map pixel
-        sx, sy = self.convert_point_to_map_coords((tx,ty), target_rect)
+            # world → map pixel
+            sx, sy = self.convert_point_to_map_coords((tx,ty), target_rect)
 
-        print(f"Target coords {sx,sy}")
-        pen = QPen(QColor(255, 0, 0))
-        pen.setWidth(3)
-        painter.setPen(pen)
+            # print(f"Target coords {sx,sy}")
+            pen = QPen(QColor(255, 0, 0))
+            pen.setWidth(3)
+            painter.setPen(pen)
 
-        size = 10
-        painter.drawLine(QLineF(sx - size, sy, sx + size, sy))
-        painter.drawLine(QLineF(sx, sy - size, sx, sy + size))
+            size = 10
+            painter.drawLine(QLineF(sx - size, sy, sx + size, sy))
+            painter.drawLine(QLineF(sx, sy - size, sx, sy + size))
+            
+        # else:
+        #     print("No target set")
 
     def _draw_scan(self, painter, target_rect):
         if self._scan_world is None or len(self._scan_world) == 0:
@@ -377,27 +417,22 @@ class WorldMapWidget(QtWidgets.QWidget):
         font = painter.font()
         font.setPointSize(12)
         painter.setFont(font)
-
         margin = 20
-
         # North (top-center)
         painter.drawText(
             QPointF(target_rect.center().x(), target_rect.top() + margin),
             "N"
         )
-
         # South (bottom-center)
         painter.drawText(
             QPointF(target_rect.center().x(), target_rect.bottom() - margin),
             "S"
         )
-
         # West (left-center)
         painter.drawText(
             QPointF(target_rect.left() + margin, target_rect.center().y()),
             "W"
         )
-
         # East (right-center)
         painter.drawText(
             QPointF(target_rect.right() - margin, target_rect.center().y()),
@@ -441,19 +476,24 @@ class WorldMapWidget(QtWidgets.QWidget):
         # Draw text
         painter.setPen(QColor(255, 255, 0))
         painter.drawText(
-            QPointF(target_rect.left() + 10, target_rect.top() + 40),
-            f"x={x_m:.2f} m, y={y_m:.2f} m, dist={dist:.2f} m, bearing={bearing_deg:.1f}°"
+            QPointF(target_rect.left() + 10, target_rect.top() + 60),
+            f"x={x_m:.2f}m, y={y_m:.2f}m ({int(gx)},{int(gy)}) dist={dist:.2f}m, bearing={bearing_deg:.1f}°"
         )
 
     def draw_status(self, painter, target_rect):
         tempC, humidity, battery = self.status_history[self.index]
+        #Max voltage is 8.1V, min is 6.3V
+        battperc = 100*(battery/100.0-6.3)/(8.1-6.3)
         # timestamp = datetime.datetime(self.time_stamps[self.index])
-        timestamp = datetime.datetime.now()
+        timestamp = datetime.datetime.fromtimestamp(self.time_stamps[self.index])
         painter.setPen(QColor(255, 255, 0))
         painter.drawText(
             QPointF(target_rect.left() + 10, target_rect.top() + 20),
-            f"{timestamp.strftime('%d/%m/%y %H:%M:%S')}: Temp: {tempC/10}°C RHumidity: {humidity/10}% Battery: {battery/100}V"
+            f"{timestamp.strftime('%d/%m/%y %H:%M:%S')}"
         )
+        painter.drawText(
+            QPointF(target_rect.left() + 10, target_rect.top() + 40),
+            f"{tempC/10}°C RH: {humidity/10}% Battery: {battperc:.1f}%")
         
         
     def convert_point_to_map_coords(self, point, target_rect):
@@ -592,7 +632,9 @@ class WorldMapWidget(QtWidgets.QWidget):
         if self.show_grid:
             self.draw_grid(painter, target_rect)
         
-        self.draw_cluster_centroids(painter, target_rect)
+        # self.draw_cluster_centroids(painter, target_rect)
+        
+        self.draw_candidate_poses(painter, target_rect)
         self.draw_chosen_target(painter, target_rect)
 
         # Draw robot pose relative to this fixed map

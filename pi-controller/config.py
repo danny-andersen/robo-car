@@ -1,5 +1,7 @@
 import struct
-from datetime import datetime
+import math
+import numpy as np
+
 
 # -----------------------------
 # I2C slave address
@@ -167,15 +169,33 @@ LIDAR_OFFSET_DEG = 0.0  # If LIDAR is not perfectly front-facing, set this to th
 MAP_SIZE_PIXELS = 800  # Occupancy grid width/height
 MAP_SIZE_METERS = 16.0  # Map width/height in meters
 
-FREE = 1
-OCCUPIED = 255
-UNKNOWN = 0
+map_size = 6.0
+map_resolution_m = 0.02
 
 # Log-odds parameters 
 L_FREE = -0.4
 L_OCC = +0.85
 L_MIN = -4.0
 L_MAX = +4.0
+
+def is_free(I):
+    return I/255.0 < 0.3          # prob < 0.5
+
+def is_occupied(I):
+    return I/255 > 0.7          # fairly confident obstacle
+
+def classify_cell(I):
+    p = I / 255.0
+
+    if p < 0.30:
+        return "free"
+
+    if p > 0.70:
+        return "occupied"
+
+    return "unknown"
+
+
 def printableProximity(proxStatus):
     parts = []
     if proxStatus & TOP_FRONT_LEFT_PROX_SET:
@@ -203,7 +223,38 @@ explorerManager = None
 save_index = 0
 output_dir = "./slam_logs"
 
-import math
+# ---------------------------------------------------------
+# World mm → grid indices
+# ---------------------------------------------------------
+# def world_to_grid(wx, wy, map_pixels, resolution_m=0.02):
+#     x_m = wx / 1000.0
+#     y_m = wy / 1000.0
+#     ix = (x_m / resolution_m).astype(int)
+#     iy = (y_m / resolution_m).astype(int)
+#     iy = map_pixels - 1 - iy  # flip Y so +Y world is up in the image
+#     return ix, iy
+    
+def world_to_grid(wx, wy, map_pixels, resolution_m=0.02):
+    # Convert to numpy arrays without copying if already arrays
+    wx = np.asarray(wx)
+    wy = np.asarray(wy)
+
+    # Convert mm → m
+    x_m = wx * 0.001
+    y_m = wy * 0.001
+
+    # Convert to grid indices
+    ix = np.floor_divide(x_m, resolution_m).astype(np.int32)
+    iy = np.floor_divide(y_m, resolution_m).astype(np.int32)
+
+    # Flip Y axis for image coordinates
+    iy = map_pixels - 1 - iy
+
+    # Return scalars if scalars were passed
+    if ix.ndim == 0:
+        return int(ix), int(iy)
+
+    return ix, iy
 
 def average_heading(deg1, deg2):
     # Convert degrees to radians
@@ -222,4 +273,24 @@ def average_heading(deg1, deg2):
 
     # Normalize to 0–360
     return (avg_deg + 360) % 360
+
+def bresenham(x0, y0, x1, y1):
+    dx = abs(x1 - x0)
+    dy = -abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx + dy
+
+    while True:
+        yield (x0, y0)
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x0 += sx
+        if e2 <= dx:
+            err += dx
+            y0 += sy
+
 

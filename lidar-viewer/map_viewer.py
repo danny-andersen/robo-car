@@ -76,6 +76,7 @@ class OfflineViewer(QtWidgets.QMainWindow):
         self.time_stamps = []
         self.map_history = []
         self.cluster_history = []
+        self.candidate_target_history = []
         self.target_history = []
         self.status_history = []
         self.obstacle_history = []
@@ -92,6 +93,7 @@ class OfflineViewer(QtWidgets.QMainWindow):
             self.map_widget.target_history = self.target_history
             self.map_widget.status_history = self.status_history
             self.map_widget.obstacle_history = self.obstacle_history
+            self.map_widget.candidate_target_history = self.candidate_target_history
         
 
 
@@ -114,13 +116,20 @@ class OfflineViewer(QtWidgets.QMainWindow):
             with open(file, "r") as f:
                 data = json.load(f)
 
+            #Load json data if not none
             self.time_stamps.append(data["timestamp"])
             self.cluster_history.append(data["frontier_clusters"])
-            self.target_history.append(tuple(data["chosen_target"]))
-            self.poses.append(tuple(data["robot_pose"]))
-            self.status_history.append(tuple(data["status"]))
+            self.candidate_target_history.append(data["candidate_targets"])
+            if data["chosen_target"] is not None:
+                self.target_history.append(tuple(data["chosen_target"]))
+            if data["robot_pose"] is not None:
+                self.poses.append(tuple(data["robot_pose"]))
+            if data["status"] is not None:
+                self.status_history.append(tuple(data["status"]))
             self.obstacle_history.append(data["obstacles"])
 
+        print(f"Frontier clusters: {self.cluster_history}")
+        print(f"Candidate targets: {self.candidate_target_history}")
     # def load_cluster_history(self):
     #     files = glob.glob(f"slam_logs/clusters_*.npy")
 

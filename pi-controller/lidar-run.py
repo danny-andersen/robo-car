@@ -1,8 +1,8 @@
 import queue
 import threading
+import datetime
 import time
 import numpy as np
-import math
 import json
 import os
 
@@ -25,18 +25,20 @@ def save_worker_thread(slam, save_queue):
             clusters = explorationManager.clusters
             chosen_target = explorationManager.target
             next_waypoint = explorationManager.next_waypoint
+            candidate_targets = explorationManager.candidate_targets
             pose = slam.get_pose()  # (x, y, theta)
             # Perform slow disk writes
             np.save(f"{config.output_dir}/map_{config.save_index:04d}.npy", map)
 
             # Save pose and frontier data with timestamp
-            t = time.time()
+            t = datetime.datetime.now()
 
             data = {
-                "timestamp": t,
+                "timestamp": t.timestamp(),
                 "pose_index": config.save_index,
                 "robot_pose": pose,
                 "frontier_clusters": clusters,
+                "candidate_targets": candidate_targets,
                 "chosen_target": chosen_target,
                 "next_waypoint": next_waypoint,
                 "status": (config.systemStatus["tempC"],config.systemStatus["humidity"], config.systemStatus["batteryVoltage"]),
