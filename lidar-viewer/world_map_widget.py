@@ -1,6 +1,11 @@
 import numpy as np
 import math
 import datetime
+import glob
+import os
+import re
+import json
+
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtGui import QImage, QColor, QLinearGradient, QPainter, QPen
@@ -25,11 +30,14 @@ class WorldMapWidget(QtWidgets.QWidget):
 
         self.setFocusPolicy(QtCore.Qt.ClickFocus)
 
-        self.map_pixels = self.parent.map_history[0].shape[0] if len(self.parent.map_history) > 0 else 500
+        self.init_data()
+        self.load_data()
+        
+        self.map_pixels = self.map_history[0].shape[0] if len(self.map_history) > 0 else 500
+        print(f"Map pixels: {self.map_pixels}")
+        self._map = np.zeros((self.map_pixels, self.map_pixels), dtype=np.uint8)
         self.resolution = resolution_m      # meters per cell
 
-        self.init_data()
-        
         # Timer to animate robot path and map updates
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.nextPose)
@@ -65,7 +73,6 @@ class WorldMapWidget(QtWidgets.QWidget):
         self.status_history = []
         self.obstacle_history = []
         self.candidate_target_history = []
-        self._map = np.zeros((self.map_pixels, self.map_pixels), dtype=np.uint8)
         self._pose = (0.0, 0.0, 0.0)        # x_mm, y_mm, theta_rad
         self._map_image = None
         self.show_grid = True
@@ -76,6 +83,77 @@ class WorldMapWidget(QtWidgets.QWidget):
         self.diff_mode = False
         self.show_scans = True
         
+    def load_data(self):
+        self.map_history = self.load_map_history()
+        if len(self.map_history) == 0:
+            print("No map files found in the current directory.")
+        # if os.path.exists("slam_logs/poses.csv"):
+        #     self.poses = np.loadtxt("slam_logs/poses.csv", delimiter=",")
+        # else:
+        #     print("No pose file found.")
+
+        # self.scans = np.load("slam_logs/scans.npy", allow_pickle=True)
+        # print("Number of scans:", len(self.scans))
+        # print("Scan shape:", self.scans[0].shape)
+
+        #Check that clusters.npy exists and load it
+        self.load_cluster_history()
+        if len(self.cluster_history) == 0:
+            print("No cluster files found in the current directory.")
+        else:
+            print("Number of cluster sets:", len(self.cluster_history))
+            # print("Example cluster shape:", self.cluster_history[0].shape)
+            # print("Example frontier targets shape:", self.frontiers[0][1].shape)
+        # if os.path.exists("slam_logs/targets.csv"):
+        #     self.targets = np.loadtxt("slam_logs/targets.csv", delimiter=",")
+        # else:
+        #     print("No target file found.")
+        
+    def load_map_history(self):
+        files = glob.glob(f"slam_logs/map_*.npy")
+
+        # Sort numerically by index
+        files.sort(key=lambda f: int(re.findall(r"map_(\d+)\.npy", f)[0]))
+        print(f"Found {len(files)} map files.")
+        map_history = [np.load(f) for f in files]
+        return map_history
+
+    def load_cluster_history(self):
+        files = glob.glob(f"slam_logs/clusters_*.json")
+
+        # Sort numerically by index
+        files.sort(key=lambda f: int(re.findall(r"clusters_(\d+)\.json", f)[0]))
+        print(f"Found {len(files)} cluster files.")
+        for file in files:
+            with open(file, "r") as f:
+                data = json.load(f)
+
+            #Load json data if not none
+            self.time_stamps.append(data["timestamp"])
+            self.cluster_history.append(data["frontier_clusters"])
+            self.candidate_target_history.append(data["candidate_targets"])
+            if data["chosen_target"] is not None:
+                self.target_history.append(tuple(data["chosen_target"]))
+            if data["robot_pose"] is not None:
+                self.poses.append(tuple(data["robot_pose"]))
+            if data["status"] is not None:
+                self.status_history.append(tuple(data["status"]))
+            self.obstacle_history.append(data["obstacles"])
+
+        print(f"Frontier clusters: {self.cluster_history}")
+        print(f"Candidate targets: {self.candidate_target_history}")
+    # def load_cluster_history(self):
+    #     files = glob.glob(f"slam_logs/clusters_*.npy")
+
+    #     # Sort numerically by index
+    #     files.sort(key=lambda f: int(re.findall(r"clusters_(\d+)\.npy", f)[0]))
+    #     print(f"Found {len(files)} cluster files.")
+    #     cluster_history = [np.load(f, allow_pickle=True) for f in files]
+    #     return cluster_history
+
+
+
+
     def nextPose(self):
         if len(self.poses) == 0:
             return
@@ -222,20 +300,23 @@ class WorldMapWidget(QtWidgets.QWidget):
         candidate_poses = self.candidate_target_history[self.index]
         if candidate_poses is None or len(candidate_poses) == 0:
             return
-        gains = [g for (_, _, g) in candidate_poses]
+        gains = [g for (_, g) in candidate_poses]
         min_gain, max_gain = min(gains), max(gains)
 
-        for (px, py, gain) in self.candidate_poses:
+        for (pose, gain) in candidate_poses:
             color = self.gain_to_color(gain, min_gain, max_gain)
             painter.setPen(QPen(color, 2))
             painter.setBrush(color)
 
+            px = pose[0] / 1000.0
+            py = pose[1] / 1000.0
             # world → map pixel → screen
-            gx = px / self.resolution
-            gy = (self.map_pixels - 1) - (py / self.resolution)
-            sx, sy = self.convert_point_to_map_coords((gx, gy), target_rect)
-            
-            painter.drawEllipse(QPointF(sx, sy), 5, 5)
+            # gx = px / self.resolution
+            # gy = (self.map_pixels - 1) - (py / self.resolution)
+            map_pos = self.convert_point_to_map_coords((px, py), target_rect)
+            if map_pos:
+                sx, sy = map_pos
+                painter.drawEllipse(QPointF(sx, sy), 5, 5)
 
 
     def draw_cluster_centroids(self, painter, target_rect):
@@ -257,21 +338,24 @@ class WorldMapWidget(QtWidgets.QWidget):
         
         if len(self.target_history) > self.index:
             tx, ty = self.target_history[self.index]
-            tx = tx * self.resolution
-            ty = ty * self.resolution
+            tx = tx  / 1000
+            ty = ty  / 1000
             # print(f"Target is {tx, ty}")
 
             # world → map pixel
-            sx, sy = self.convert_point_to_map_coords((tx,ty), target_rect)
+            map_pos = self.convert_point_to_map_coords((tx,ty), target_rect)
+            if map_pos:
+                sx, sy = map_pos
+                # print(f"Target coords {sx,sy}")
+                pen = QPen(QColor(255, 0, 0))
+                pen.setWidth(3)
+                painter.setPen(pen)
 
-            # print(f"Target coords {sx,sy}")
-            pen = QPen(QColor(255, 0, 0))
-            pen.setWidth(3)
-            painter.setPen(pen)
-
-            size = 10
-            painter.drawLine(QLineF(sx - size, sy, sx + size, sy))
-            painter.drawLine(QLineF(sx, sy - size, sx, sy + size))
+                size = 10
+                painter.drawLine(QLineF(sx - size, sy, sx + size, sy))
+                painter.drawLine(QLineF(sx, sy - size, sx, sy + size))
+            else:
+                print(f"Target outside map?? {tx},{ty}")
             
         # else:
         #     print("No target set")
@@ -508,11 +592,13 @@ class WorldMapWidget(QtWidgets.QWidget):
 
         # If robot is outside the map, don't draw it
         if not (0 <= gx < self.map_pixels and 0 <= gy < self.map_pixels):
+            print(f"{x_m},{y_m} -> {gx},{gy} is outside the map!")
             return
 
         # Grid index → screen coordinates inside target_rect
         sx = target_rect.left() + (gx / self.map_pixels) * target_rect.width()
         sy = target_rect.top() + (gy / self.map_pixels) * target_rect.height()
+        # print(f"{x_m},{y_m} -> {gx},{gy}  -> {sx},{sy}")
         
         return (sx, sy)
         
