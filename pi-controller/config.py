@@ -179,7 +179,7 @@ L_MIN = -4.0
 L_MAX = +4.0
 
 def is_free(I):
-    return I/255.0 < 0.3          # prob < 0.5
+    return I/255.0 < 0.5          # prob < 0.5
 
 def is_occupied(I):
     return I/255 > 0.7          # fairly confident obstacle
@@ -187,7 +187,7 @@ def is_occupied(I):
 def classify_cell(I):
     p = I / 255.0
 
-    if p < 0.30:
+    if p < 0.50:
         return "free"
 
     if p > 0.70:
@@ -274,6 +274,9 @@ def average_heading(deg1, deg2):
     # Normalize to 0–360
     return (avg_deg + 360) % 360
 
+# Bresenham's line algorithm
+# Used to determine which points on a 2D raster (pixel grid) should be selected to form a close approximation of a straight line 
+# between two points
 def bresenham(x0, y0, x1, y1):
     dx = abs(x1 - x0)
     dy = -abs(y1 - y0)

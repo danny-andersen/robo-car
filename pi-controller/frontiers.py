@@ -65,23 +65,6 @@ class Explorer:
         return True
 
 
-    def flood_fill_free_space(self, grid, start):
-        H, W = grid.shape
-        sx, sy = start
-        q = deque([(sx, sy)])
-        visited = set([(sx, sy)])
-
-        while q:
-            x, y = q.popleft()
-
-            for nx, ny in [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]:
-                if 0 <= nx < W and 0 <= ny < H:
-                    if config.is_free(grid[ny, nx]) and (nx, ny) not in visited:
-                        visited.add((nx, ny))
-                        q.append((nx, ny))
-        return visited
-
-
     def compute_visibility(self, occ_img, robot_gx, robot_gy, max_range_cells=300):
         h, w = occ_img.shape
         visible = np.zeros_like(occ_img, dtype=bool)
@@ -381,10 +364,11 @@ class Explorer:
         returns: (dist_mm, target_world_x_mm, target_world_y_mm)
         """
 
-        next_gx, next_gy = path
+        # next_gx, next_gy = path
 
-        # Convert to world mm
-        wx, wy = self.grid_to_world_mm(next_gx, next_gy)
+        # # Convert to world mm
+        # wx, wy = self.grid_to_world_mm(next_gx, next_gy)
+        wx, wy = path
 
         # Compute world-frame delta
         dx = wx - robot_x_mm
@@ -443,7 +427,7 @@ class Explorer:
         while r < max_range:
             x = px + r * math.cos(angle)
             y = py + r * math.sin(angle)
-            gx, gy = config.world_to_grid(x, y, self.max_pixels)
+            gx, gy = config.world_to_grid(x, y, self.map_pixels)
 
             if not (0 <= gx < W and 0 <= gy < H):
                 return "out", r
@@ -465,22 +449,6 @@ class Explorer:
         cx, cy = centroid
         return min(cluster, key=lambda p: math.dist(p, (cx, cy)))
     
-    def flood_fill_reachable(self, grid, start_cell):
-        H, W = grid.shape
-        sx, sy = start_cell
-        q = deque([(sx, sy)])
-        visited = set([(sx, sy)])
-
-        while q:
-            x, y = q.popleft()
-            for nx, ny in [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]:
-                if 0 <= nx < W and 0 <= ny < H:
-                    if config.is_free(grid[ny, nx]) and (nx, ny) not in visited:
-                        visited.add((nx, ny))
-                        q.append((nx, ny))
-
-        return visited
-
     def sample_candidate_poses(self, robot_x, robot_y, radii=(0.3, 0.6, 1.0), num_angles=24):
         poses = []
         for r in radii:
@@ -491,6 +459,76 @@ class Explorer:
                 poses.append((px, py))
         return poses
 
+    def has_line_of_sight(self, grid, robot_pos, cx, cy):
+        rx, ry = robot_pos
+
+        dx = cx - rx
+        dy = cy - ry
+
+        steps = max(abs(dx), abs(dy))
+        if steps == 0:
+            return True
+
+        x_inc = dx / steps
+        y_inc = dy / steps
+
+        x = rx
+        y = ry
+
+        for _ in range(steps):
+            x += x_inc
+            y += y_inc
+
+            ix = int(round(x))
+            iy = int(round(y))
+
+            # Bounds check
+            if iy < 0 or iy >= grid.shape[0] or ix < 0 or ix >= grid.shape[1]:
+                return False
+
+            cell = config.classify_cell(grid[iy, ix])
+
+            if cell == "occupied":
+                return False
+
+        return True
+
+    def bearing_in_arc(self, bearing, arc_start, arc_end):
+        if arc_start <= arc_end:
+            return arc_start <= bearing <= arc_end
+        else:
+            # wrap-around case (e.g. 350° → 10°)
+            return bearing >= arc_start or bearing <= arc_end
+
+    def candidate_blocked_by_obstacle(self, robot_pos, cx, cy):
+        rx, ry = robot_pos
+        dx = cx - rx
+        dy = cy - ry
+
+        candidate_bearing = math.degrees(math.atan2(dy, dx)) % 360
+        candidate_dist = math.hypot(dx, dy)
+
+        for obs in config.obstacles:
+            width = obs.get("width", 0)
+            dist_cm = obs.get("avgDistance", 0)
+
+            if width <= 0 or dist_cm <= 0:
+                continue
+
+            arc_center = (90 - obs["bearing"]) % 360
+            half_width = width / 2.0
+            arc_start = (arc_center - half_width) % 360
+            arc_end   = (arc_center + half_width) % 360
+
+            # Check bearing
+            if self.bearing_in_arc(candidate_bearing, arc_start, arc_end):
+                # Check distance
+                if candidate_dist >= (dist_cm / 100.0):
+                    print(f"{cx},{cy} blocked by {arc_center},{dist_cm}")
+                    return True  # candidate is inside obstacle arc
+
+        return False
+
     def score_pose(self, px, py, robot_x, robot_y, info_gain,
                w_ig=1.0, w_dist=0.5):
         dist = math.dist((px, py), (robot_x, robot_y))
@@ -499,9 +537,8 @@ class Explorer:
     def filter_candidate_poses(self, grid, robot_x, robot_y, poses):
         H, W = grid.shape
         print(f"Map dimensions: {W}, {H}")
-        rx_cell = config.world_to_grid(robot_x, robot_y, self.map_pixels)
+        rx_cell = config.world_to_grid(robot_x, robot_y, self.map_pixels)   
         print(f"Robot at {rx_cell}")
-        reachable = self.flood_fill_reachable(grid, rx_cell)
 
         valid = []
         # Poses are in world coordinates (metres), map occupancy is in int coords
@@ -512,10 +549,13 @@ class Explorer:
                 print(f"Pose {gx},{gy} out of bounds")
                 continue
             if not config.is_free(grid[gy, gx]):
-                print(f"Pose {gx},{gy} not free")
+                print(f"Pose {gx},{gy} not free: {grid[gy, gx]}")
                 continue
-            if (gx, gy) not in reachable:
+            if not self.has_line_of_sight(grid, rx_cell, gx, gy):
                 print(f"Pose {gx},{gy} not reachable")
+                continue
+            if self.candidate_blocked_by_obstacle((robot_x/1000.0, robot_y/1000.0), px/1000.0, py/1000.0):
+                print(f"Pose {gx},{gy} behind ultrasound barrier")
                 continue
             valid.append((px, py))
         return valid
@@ -525,11 +565,12 @@ class Explorer:
         for i in range(num_rays):
             angle = 2 * math.pi * i / num_rays
             result, _ = self.raycast_into_map(grid, px, py, angle, max_range)
-            if result == "unknown":
+            if result == "unknown" or result == "out":
+                # This position has a view of an unknown part of the map
                 gain += 1
         return gain
     
-    def choose_next_best_view(self, grid, robot_x, robot_y, max_range=5.0):
+    def choose_next_best_view(self, grid, robot_x, robot_y, max_range=4.0):
         # 1) sample
         poses = self.sample_candidate_poses(robot_x, robot_y)
 
@@ -571,6 +612,7 @@ class ExplorationManager:
         self.obstacles = []   # ultrasonic obstacles from robot
         self.clusters = []    # current frontier clusters
         self.target = None    # current target frontier (gx, gy)
+        self.candidate_targets = []
         self.next_waypoint = None # next waypoint on path to target (gx, gy)
 
     # ---------------------------------------------------------
@@ -594,57 +636,7 @@ class ExplorationManager:
         """
         occ_img = self.slam.get_map()
         robot_x_mm, robot_y_mm, robot_theta = self.slam.get_pose()
-        # ------------------------------------------------------------
-        # 1. Convert robot world pose → grid
-        # ------------------------------------------------------------
-        robot_gx = int(robot_x_mm / (self.resolution_m * 1000))
-        robot_gy = int(robot_y_mm / (self.resolution_m * 1000))
 
-        # # ------------------------------------------------------------
-        # # 2. Compute visibility mask (ray casting)
-        # # ------------------------------------------------------------
-        # visible = self.explorer.compute_visibility(occ_img, robot_gx, robot_gy)
-
-        # ------------------------------------------------------------
-        # 3. Detect occlusion frontiers
-        # ------------------------------------------------------------
-        # frontiers = self.explorer.find_frontiers(occ_img)
-        # reachable = self.explorer.flood_fill_free_space(occ_img, (robot_gx, robot_gy))
-        # frontiers = [f for f in frontiers if f in reachable]
-        # print(f"Detected {len(frontiers)} frontiers")
-        # # frontier_pixels = self.explorer.find_occlusion_frontiers(occ_img, visible)
-        # # print(f"Detected {len(frontier_pixels)} frontier pixels")
-        # # if not frontier_pixels:
-        # #     print("No frontiers detected, cannot explore further")
-        # #     return (config.NO_SAFE_DIRECTION, 0)  # no exploration targets
-
-        # # ------------------------------------------------------------
-        # # 4. Cluster occlusion frontiers
-        # # ------------------------------------------------------------
-        # self.clusters = self.explorer.cluster_frontiers(frontiers)
-        # print(f"Clustered into {len(self.clusters)} frontier clusters")
-        # if not self.clusters:
-        #     print("No frontier clusters found, cannot explore further")
-        #     return (config.NO_SAFE_DIRECTION, 0)
-
-        # # ------------------------------------------------------------
-        # # 5. Pick nearest cluster centroid (local exploration first)
-        # # ------------------------------------------------------------
-        # # target_gx, target_gy = self.explorer.pick_nearest_cluster(
-        # #     self.clusters,
-        # #     robot_x_mm,
-        # #     robot_y_mm
-        # # )
-        
-
-        # chosen_cluster, chosen_centroid = self.explorer.choose_best_cluster(self.clusters, robot_gx, robot_gy, robot_theta)
-        # self.target = self.explorer.choose_target_point(chosen_cluster, chosen_centroid)
-        
-        # Sample candidate poses around the robot
-        # Filter: inside map, is_free at that cell, and in reachable set
-        # Compute information gain: number of rays that first hit is_unknown
-        # Score: score = w_ig * gain - w_dist * distance
-        # Pick best pose as NBV target 
         self.target, self.candidate_targets = self.explorer.choose_next_best_view(occ_img, robot_x_mm, robot_y_mm, robot_theta)
 
         print(f"Chosen target grid: {self.target}")
@@ -653,22 +645,22 @@ class ExplorationManager:
         # 6. Plan A* path to the chosen cluster centroid
         # ------------------------------------------------------------
         if self.target is not None:
-            path = self.explorer.astar(occ_img, (robot_gx, robot_gy), self.target)
-            if not path or len(path) < 2:
-                print("No path to target or already at target")
-                return (config.NO_SAFE_DIRECTION, 0)  # no path or already at target
-            # ------------------------------------------------------------
-            # 7. Skip tiny A* steps (avoid 20–28 mm grid artefacts)
-            # ------------------------------------------------------------
-            for startPath in range(1, len(path)):  # Find a viable path
-                next_waypoint = self.explorer.pick_next_waypoint(robot_x_mm, robot_y_mm, path, startPath, min_step_mm=300)
-                if next_waypoint:
-                    print(f"Next_waypoint to {self.target}: {next_waypoint} ")
-                    move = self.explorer.compute_move_mm(robot_x_mm, robot_y_mm, next_waypoint)
-                    print("Proposed move:", move)
-                    next_move = self.veto.adjust_move(move, self.obstacles)
-                    if next_move:
-                        break
+            # path = self.explorer.astar(occ_img, (robot_gx, robot_gy), self.target)
+            # if not path or len(path) < 2:
+            #     print("No path to target or already at target")
+            #     return (config.NO_SAFE_DIRECTION, 0)  # no path or already at target
+            # # ------------------------------------------------------------
+            # # 7. Skip tiny A* steps (avoid 20–28 mm grid artefacts)
+            # # ------------------------------------------------------------
+            # for startPath in range(1, len(path)):  # Find a viable path
+            #     next_waypoint = self.explorer.pick_next_waypoint(robot_x_mm, robot_y_mm, path, startPath, min_step_mm=300)
+            #     if next_waypoint:
+                    # print(f"Next_waypoint to {self.target}: {next_waypoint} ")
+            move = self.explorer.compute_move_mm(robot_x_mm, robot_y_mm, self.target)
+            print("Proposed move:", move)
+            next_move = self.veto.adjust_move(move, self.obstacles)
+            # if next_move:
+            #     break
 
        # ------------------------------------------------------------
         # 9. Return single next move
@@ -677,7 +669,7 @@ class ExplorationManager:
             world_bearing = self.slam.convert_bearing_from_slam_frame(next_move[0])
             self.next_waypoint = (world_bearing, next_move[1])  # Store for logging
             next_move = (world_bearing, next_move[1]/10.0)  # convert mm to cm
-            print(f"Next move (bearing, distance_mm): {self.next_waypoint} to target {self.target}")
+            print(f"Next move (bearing, distance_cm): {self.next_waypoint} to target {self.target}")
             return next_move
         else:
             # No safe move available - Let the robot decide what to do (e.g. rotate in place)
