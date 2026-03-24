@@ -24,7 +24,7 @@ void setup() {
 void loop() {
   if (sweepComplete) return;
   //Find the direction with the max and min distance
-  double* distances = HCSR04.measureDistanceCm();
+  double* distances = HCSR04.measureDistanceCm(214/10);
   int currentDistance = distances[0];
   Serial.print(servoPosition);
   Serial.print(" deg: ");

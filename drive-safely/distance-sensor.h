@@ -18,14 +18,10 @@ void distanceSensorInit() {
   servo.attach(PIN_SERVO);
   servo.write(SERVO_CENTRE);  //centre the sensor
   servoPosition = SERVO_CENTRE;
-  delay(1000);
-  double* distances = HCSR04.measureDistanceCm();
-  delay(1000);
-  randomSeed(analogRead(A3));
 }
 
 uint16_t clearDistanceAhead() {
-  double* measured = HCSR04.measureDistanceCm();
+  double* measured = HCSR04.measureDistanceCm(systemStatus.tempC/10);
   uint16_t currentDistance = (uint16_t)lrint(measured[0]);
   return currentDistance;
 }
@@ -42,7 +38,7 @@ void sweep() {
   for (int a = SERVO_CENTRE; a >= 0; a--) {
     servo.write(a);
     delay(10);
-    measured = HCSR04.measureDistanceCm();
+    measured = HCSR04.measureDistanceCm(systemStatus.tempC/10);
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) {
       distances[a] = MAX_DISTANCE_CAN_MEASURE;
     } else {
@@ -57,7 +53,7 @@ void sweep() {
   for (int a = 0; a <= SERVO_CENTRE; a++) {
     servo.write(a);
     delay(10);
-    measured = HCSR04.measureDistanceCm();
+    measured = HCSR04.measureDistanceCm(systemStatus.tempC/10);
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) {
       distances[a] = MAX_DISTANCE_CAN_MEASURE;
     } else {
@@ -73,7 +69,7 @@ void sweep() {
   for (int a = SERVO_CENTRE; a < 180; a++) {
     servo.write(a);
     delay(10);
-    measured = HCSR04.measureDistanceCm();
+    measured = HCSR04.measureDistanceCm(systemStatus.tempC/10);
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) {
       distances[a] = MAX_DISTANCE_CAN_MEASURE;
     } else {
@@ -85,7 +81,7 @@ void sweep() {
   for (int a = 179; a >= 90; a--) {
     servo.write(a);
     delay(10);
-    measured = HCSR04.measureDistanceCm();
+    measured = HCSR04.measureDistanceCm(systemStatus.tempC/10);
     if (measured[0] > MAX_DISTANCE_CAN_MEASURE) {
       distances[a] = MAX_DISTANCE_CAN_MEASURE;
     } else {

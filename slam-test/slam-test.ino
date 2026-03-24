@@ -131,7 +131,7 @@ void loop() {
   if (systemStatus.robotState == ROTATING) {
     if (rotation_cnt < 8) {
       //Ignore what the PI returned - just rotate +45 degrees in this test
-      directionToDrive = normalise(systemStatus.currentBearing + 20);
+      directionToDrive = normalise(systemStatus.currentBearing + 45);
       // directionToDrive = 0;
       rotation_cnt++;
     } else {
