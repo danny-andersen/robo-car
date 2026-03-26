@@ -360,7 +360,7 @@ class Explorer:
  
     def compute_move_mm(self, robot_x_mm, robot_y_mm, path):
         """
-        path: (gx, gy) grid cells from A*
+        path: (gx, gy) world coordinates
         returns: (dist_mm, target_world_x_mm, target_world_y_mm)
         """
 
@@ -377,7 +377,7 @@ class Explorer:
         print(f"Computing move to grid {path} → world ({wx:.1f} mm, {wy:.1f} mm), robot {robot_x_mm:.1f} mm, {robot_y_mm:.1f} mm, delta ({dx:.1f} mm, {dy:.1f} mm)")
         dist_mm = math.sqrt(dx*dx + dy*dy)
         bearing = math.atan2(dy, dx)
-        bearing_world_deg = math.degrees(bearing)
+        bearing_world_deg = 90 - math.degrees(bearing)
 
         return bearing_world_deg, dist_mm
 
@@ -420,10 +420,11 @@ class Explorer:
 
         return best_cluster, best_centroid
 
-    def raycast_into_map(self, grid, px, py, angle, max_range, step=0.05):
+    def raycast_into_map(self, grid, px, py, angle, max_range):
         r = 0.0
+        step = 2 * self.resolution_m * 1000.0
         H, W = grid.shape
-
+        result = "max"
         while r < max_range:
             x = px + r * math.cos(angle)
             y = py + r * math.sin(angle)
@@ -433,29 +434,32 @@ class Explorer:
                 return "out", r
 
             cell = config.classify_cell(grid[gy, gx])
+            # print(f"At {x}, {y}, grid {gx, gy} val {grid[gy, gx]} cell is {cell}")
 
             if cell == "occupied":
                 return "hit", r
 
             if cell == "unknown":
                 return "unknown", r
-
+                
             # free → continue
             r += step
 
-        return "max", max_range
+        return result, r
 
     def choose_target_point(self, cluster, centroid):
         cx, cy = centroid
         return min(cluster, key=lambda p: math.dist(p, (cx, cy)))
     
-    def sample_candidate_poses(self, robot_x, robot_y, radii=(0.3, 0.6, 1.0), num_angles=24):
+    def sample_candidate_poses(self, robot_x, robot_y, radii=(0.6, 1.0), num_angles=12):
         poses = []
+        angle_factor = 2 * math.pi/ num_angles
         for r in radii:
+            r_mm = r * 1000
             for i in range(num_angles):
-                a = 2 * math.pi * i / num_angles
-                px = robot_x + 1000 * r * math.cos(a)
-                py = robot_y + 1000 * r * math.sin(a)
+                a = angle_factor * i
+                px = robot_x + r_mm * math.cos(a)
+                py = robot_y + r_mm * math.sin(a)
                 poses.append((px, py))
         return poses
 
@@ -536,9 +540,9 @@ class Explorer:
 
     def filter_candidate_poses(self, grid, robot_x, robot_y, poses):
         H, W = grid.shape
-        print(f"Map dimensions: {W}, {H}")
+        # print(f"Map dimensions: {W}, {H}")
         rx_cell = config.world_to_grid(robot_x, robot_y, self.map_pixels)   
-        print(f"Robot at {rx_cell}")
+        # print(f"Robot at {rx_cell}")
 
         valid = []
         # Poses are in world coordinates (metres), map occupancy is in int coords
@@ -546,31 +550,34 @@ class Explorer:
             print(f"Candidate: {px},{py}")
             gx, gy = config.world_to_grid(px, py, self.map_pixels)
             if not (0 <= gx < W and 0 <= gy < H):
-                print(f"Pose {gx},{gy} out of bounds")
+                # print(f"Pose {gx},{gy} out of bounds")
                 continue
             if not config.is_free(grid[gy, gx]):
-                print(f"Pose {gx},{gy} not free: {grid[gy, gx]}")
+                # print(f"Pose {gx},{gy} not free: {grid[gy, gx]}")
                 continue
             if not self.has_line_of_sight(grid, rx_cell, gx, gy):
-                print(f"Pose {gx},{gy} not reachable")
+                # print(f"Pose {gx},{gy} not reachable")
                 continue
             if self.candidate_blocked_by_obstacle((robot_x/1000.0, robot_y/1000.0), px/1000.0, py/1000.0):
-                print(f"Pose {gx},{gy} behind ultrasound barrier")
+                # print(f"Pose {gx},{gy} behind ultrasound barrier")
                 continue
             valid.append((px, py))
         return valid
         
-    def compute_information_gain(self, grid, px, py, max_range, num_rays=72):
+    def compute_information_gain(self, grid, px, py, max_range):
         gain = 0
+        num_rays=72
+        angle_factor = 2 * math.pi / num_rays 
         for i in range(num_rays):
-            angle = 2 * math.pi * i / num_rays
-            result, _ = self.raycast_into_map(grid, px, py, angle, max_range)
-            if result == "unknown" or result == "out":
+            angle = angle_factor * i
+            result, dist = self.raycast_into_map(grid, px, py, angle, max_range)
+            # print(f"At {px,py} Angle: {math.degrees(angle)} result: {result} at {dist}mm with max at {max_range}mm")
+            if result in ["unknown", "out", "max"]:
                 # This position has a view of an unknown part of the map
                 gain += 1
         return gain
     
-    def choose_next_best_view(self, grid, robot_x, robot_y, max_range=4.0):
+    def choose_next_best_view(self, grid, robot_x, robot_y, max_range=2000):
         # 1) sample
         poses = self.sample_candidate_poses(robot_x, robot_y)
 
@@ -637,9 +644,9 @@ class ExplorationManager:
         occ_img = self.slam.get_map()
         robot_x_mm, robot_y_mm, robot_theta = self.slam.get_pose()
 
-        self.target, self.candidate_targets = self.explorer.choose_next_best_view(occ_img, robot_x_mm, robot_y_mm, robot_theta)
+        self.target, self.candidate_targets = self.explorer.choose_next_best_view(occ_img, robot_x_mm, robot_y_mm)
 
-        print(f"Chosen target grid: {self.target}")
+        print(f"Chosen target coords mm: {self.target}")
         next_move = None
         # ------------------------------------------------------------
         # 6. Plan A* path to the chosen cluster centroid

@@ -179,20 +179,25 @@ L_MIN = -4.0
 L_MAX = +4.0
 
 def is_free(I):
-    return I/255.0 < 0.5          # prob < 0.5
+    p = I/255
+    return p < 0.5          # prob that cell is free or not been mapped yet
 
 def is_occupied(I):
-    return I/255 > 0.7          # fairly confident obstacle
+    return I/255 >= 0.5          # fairly confident obstacle
 
 def classify_cell(I):
+    #Turn pixel intensity back to a probability that the cell on the map is occupied
     p = I / 255.0
+
+    if p <= 0.1:
+        return "unknown"  # not seen on LIDAR
 
     if p < 0.50:
         return "free"
 
-    if p > 0.70:
+    if p >= 0.50:
         return "occupied"
-
+    
     return "unknown"
 
 

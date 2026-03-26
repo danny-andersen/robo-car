@@ -169,14 +169,14 @@ class MoveVeto:
         if distance > max_distance_mm:
             distance = max_distance_mm
 
-        # 2. Adjust bearing to avoid ultrasonic obstacles
+        # 2. Adjust bearing to avoid ultrasonic obstacles (shouldnt need to as candidate moves should already be filtered)
         bearing, distance = self.adjust_ultrasonic(move, obstacles)
         
         # 2. Clip moves that enter unknown space
         x0, y0, th = self.slam.get_pose()
         br = math.radians(bearing)
 
-        step_mm = 50
+        step_mm = 50.0
         steps = int(distance / step_mm)
 
         grid = self.slam.get_map()
