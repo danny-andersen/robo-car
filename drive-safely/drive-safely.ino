@@ -27,32 +27,33 @@ void setup() {
   // Start I²C bus
   Wire.begin();
   showBatteryStatus();
-  delay(3000);  //Let everything settle before initialising accelerometer
   compass_init();
-  waitUntilCalibrated();
-  motor_Init();
-  distanceSensorInit();
   //Wait until nano and pi peripherals are ready
   do {
     getCombinedProximity();
     D_println(piCommsError);
     delay(100);
   } while (piCommsError || nanoCommsError);
-  //Rotate through 360 to help the compass to calibrate
-  aboutTurn();
-  //Start by pointing due north
-  // rotateTo(0);
-  aboutTurn();
-  delay(1000);
-  //Reset movement stats
-  sendStartMotorCmd();
-  sendStopMotorCmd();
+  waitUntilCalibrated();
   systemStatus.currentBearing = getCompassBearing();
   //Send init status to PI for logging
   updateStatus();
   statusTimer = 0;
+  delay(2000);  //Let everything settle 
+  motor_Init();
+  distanceSensorInit();
+  //Rotate through 360 to help the compass to calibrate
+  aboutTurn();
+  aboutTurn();
+  delay(2000);
+  //Check compassed calibrated
+  waitUntilCalibrated();
+  systemStatus.currentBearing = getCompassBearing();
+  //Reset movement stats
+  sendStartMotorCmd();
+  sendStopMotorCmd();
   wdt_enable(WDTO_4S);
-
+  //Start off in sweep mode to understand surroundings and start the mapping
   systemStatus.robotState = SWEEP;
 }
 
