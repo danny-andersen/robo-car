@@ -408,7 +408,12 @@ class WorldMapWidget(QtWidgets.QWidget):
             cy = self.resolution * sum(ys) / len(ys)
 
             # world → map pixel → screen
-            sx, sy = self.convert_point_to_map_coords((cx, cy), target_rect)
+            map_pos = self.convert_point_to_map_coords((cx, cy), target_rect) 
+            if map_pos:
+                sx, sy = map_pos
+            else:
+                # Not on map
+                return
 
             painter.setPen(QPen(QColor(255, 0, 255), 2))
             painter.drawEllipse(QPointF(sx, sy), 6, 6)
@@ -833,7 +838,12 @@ class WorldMapWidget(QtWidgets.QWidget):
         rx_m = self._pose[0] / 1000.0
         ry_m = self._pose[1] / 1000.0
 
-        rsx, rsy = self.convert_point_to_map_coords((rx_m, ry_m), target_rect)
+        map_pos = self.convert_point_to_map_coords((rx_m, ry_m), target_rect)
+        if map_pos:
+            rsx, rsy = map_pos
+        else:
+            # Outside of map
+            return
 
         # Bearing line end = mouse screen coords
         msx = mx
@@ -962,7 +972,12 @@ class WorldMapWidget(QtWidgets.QWidget):
         x_m = x_mm / 1000.0
         y_m = y_mm / 1000.0
 
-        sx, sy = self.convert_point_to_map_coords((x_m, y_m), target_rect)
+        map_pos = self.convert_point_to_map_coords((x_m, y_m), target_rect)
+        if map_pos:
+            sx, sy = map_pos
+        else:
+            #Robot outside of map
+            return
         # Draw robot body
         painter.setPen(QtGui.QPen(QtCore.Qt.red, 2))
         painter.setBrush(QtGui.QBrush(QtCore.Qt.red))
