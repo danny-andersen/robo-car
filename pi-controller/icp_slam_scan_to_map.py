@@ -1,3 +1,4 @@
+from datetime import datetime
 import math
 import numpy as np
 from scipy.ndimage import distance_transform_edt
@@ -10,10 +11,10 @@ import config
 # ------------------------------------------------------------
 
 class LocalMap:
-    def __init__(self, size_m=4.0, resolution_m=config.map_resolution_m):
-        self.resolution_m = resolution_m
+    def __init__(self, size_m):
+        self.resolution_m = config.map_resolution_m
         self.size_m = size_m
-        self.pixels = int(size_m / resolution_m)
+        self.pixels = int(size_m / self.resolution_m)
         self.L = np.zeros((self.pixels, self.pixels), dtype=np.float32)
 
     def world_from_local(self, lx_mm, ly_mm, pose):
@@ -35,13 +36,19 @@ class LocalMap:
 
 
 class ICP_SLAM:
-    def __init__(self, map_size_m=config.map_size, resolution=config.map_resolution_m):
+    def __init__(self):
         """
         map_size_m: physical width/height of map in meters
         resolution: meters per cell
         """
-        self.resolution_m = resolution
-        self.map_pixels = int(map_size_m / resolution)  # pixels per side
+        self.init_data()
+        self.scans_mm_stationary = []  # Store recent scans for building local micro-maps during stationary phases
+        
+    
+    def init_data(self):
+        self.map_size_m = config.map_size
+        self.resolution_m = config.map_resolution_m
+        self.map_pixels = int(self.map_size_m / self.resolution_m)  # pixels per side
         print(f"ICP SLAM map pixels {self.map_pixels}")
         
         # Log-odds grid
@@ -60,7 +67,7 @@ class ICP_SLAM:
          # Thresholds
         self.p_occ = 0.7
         self.p_free = 0.3
-        self.icp_good_threshold = 5000.0  # ICP error threshold for deciding when to trust ICP vs do global relocalisation
+        self.icp_good_threshold = 1.0  # ICP error threshold for deciding when to trust ICP vs do global relocalisation
         self.L_min = -8.0
         self.L_max = 8.0
 
@@ -71,14 +78,12 @@ class ICP_SLAM:
         self.dist_field = None
         #Init internal maps
         self.update_internal_maps()
-        self.first_scan = True 
         self.first_ever_scan = True
-        self.scans_mm_stationary = []  # Store recent scans for building local micro-maps during stationary phases
         self.heading_deg = 0  # Initialize heading degree
         self.avg_move_heading_deg = 0  # Initialize average move heading degree
         self.distance_moved_mm = 0  # Initialize distance moved
         self.move_confidence = 0.0  # Initialize move confidence
-        
+                
     # ---------------------------------------------------------
     # Polar scan → Cartesian points in robot frame (mm)
     # ---------------------------------------------------------
@@ -159,36 +164,6 @@ class ICP_SLAM:
 
         return score
  
-    # ---------------------------------------------------------
-    # Scan-to-map refinement: x, y, theta
-    # ---------------------------------------------------------
-    def refine_pose_scan_to_map(self, pts):
-
-        trans_step = 20.0
-        rot_step = math.radians(0.5)
-
-        trans_offsets = [-trans_step, 0.0, trans_step]
-        rot_offsets = [k * rot_step for k in range(-2, 3)]  # ±1°
-
-        base_score = self.score_scan_at_pose(pts, self.x, self.y, self.theta)
-        best_score = base_score
-        best_pose = (self.x, self.y, self.theta)
-
-        for dx in trans_offsets:
-            for dy in trans_offsets:
-                for dth in rot_offsets:
-                    cx = self.x + dx
-                    cy = self.y + dy
-                    cth = self.theta + dth
-
-                    score = self.score_scan_at_pose(pts, cx, cy, cth)
-                    if score > best_score:
-                        best_score = score
-                        best_pose = (cx, cy, cth)
-
-        return best_pose, base_score, best_score
-
-
     def build_local_map_from_points(
             self,
             pose_seed,
@@ -197,7 +172,7 @@ class ICP_SLAM:
             occ_logodds=2.0,
             free_logodds=-0.5
         ):
-        local = LocalMap(size_m=size_m, resolution_m=resolution_m)
+        local = LocalMap(size_m=size_m)
 
         # Robot is at the center of the local map
         rx = local.pixels // 2
@@ -540,7 +515,7 @@ class ICP_SLAM:
 
         return (*best_pose, best_score)
 
-    def refine_pose_with_micro_map_and_merge(self):
+    def refine_pose_with_micro_map_and_merge(self, heading_deg, avg_move_heading_deg, distance_mm, confidence, has_reset):
         """
         Full stationary refinement pipeline:
 
@@ -553,16 +528,26 @@ class ICP_SLAM:
         6. Update internal map structures (prob, dist_field, etc.)
         """
 
+        if has_reset:
+            # Robot has been initialised or watchdog failure - proceed as if its the first ever scan
+            self.init_data()
 
+        self.distance_moved_mm = distance_mm
+        # Convert compass heading to SLAM frame: 0°=north, CCW+
+        self.heading_deg = 90.0 - heading_deg
+        self.theta = math.radians(self.heading_deg)
+        self.avg_move_heading_deg = 90.0 - avg_move_heading_deg
+        self.move_confidence = confidence
+        
         if len(self.scans_mm_stationary) == 0:
-            print("No scans to process for micro-map refinement.")
+            print(f"{datetime.now()}: No scans to process for micro-map refinement!")
             return
 
-        print("Number of scans in stationary buffer:", len(self.scans_mm_stationary))
+        # print("Number of scans in stationary buffer:", len(self.scans_mm_stationary))
         
         if not self.first_ever_scan:
             # We cannot do any of this on the very first scan since we have no prior pose or map, so just skip to building the initial map. After the first scan, we have a pose guess and can start refining with micro-maps.
-            print("Refining pose with micro-map and merging into global map...")
+            # print("Refining pose with micro-map and merging into global map...")
             # ------------------------------------------------------------
             # 1. Motion prior
             # ------------------------------------------------------------
@@ -581,7 +566,7 @@ class ICP_SLAM:
             # 2. ICP refinement + fallback relocalisation
             # ------------------------------------------------------------
             pose_seed = pose_guess
-            print("Pose guess from motion prior:", pose_guess, "with move confidence:", self.move_confidence)
+            print(f"{datetime.now()}: 1. ICP Pose guess from motion prior: {x_pred:.0f},{y_pred:.0f} bearing {math.degrees(self.theta):.0f} with move confidence: {self.move_confidence}")
 
             relocalise = False
             if self.move_confidence > 0.3:
@@ -596,48 +581,50 @@ class ICP_SLAM:
 
                 if icp_error < icp_threshold:
                     # ICP succeeded → use it as seed
-                    print("ICP refinement successful with error:", icp_error)
+                    print(f"{datetime.now()}: ICP refinement successful with error:", icp_error)
                     pose_seed = (x_icp, y_icp, theta_icp)
                 else:
                     # ICP failed → fall back to relocalisation
-                    print("ICP refinement failed with error:", icp_error, "exceeding threshold:", icp_threshold)
+                    print(f"{datetime.now()}: ICP refinement failed with error:", icp_error, "exceeding threshold:", icp_threshold)
                     relocalise = True
             else:
                 relocalise = True
         
             if relocalise:        
                 # Low confidence in pose guess → skip ICP, go straight to relocalisation
-                if self.distance_moved_mm < 500.0:
-                    print("Performing local relocalisation around predicted pose with in movement:", self.move_confidence)
+                if self.distance_moved_mm < 500.0 and self.move_confidence > 0.3:
+                    print(f"{datetime.now()}: 2(a). Performing local relocalisation around predicted pose with confidence in movement:", self.move_confidence)
                     x_rel, y_rel, th_rel, score_rel = self.local_relocalise(
                         first_scan_pts,
                         pose_guess
                     )
                 else:
-                    print("Performing global relocalisation with no confidence in movement:", self.move_confidence)
+                    print(f"{datetime.now()}: 2(b) Performing global relocalisation with no confidence in movement:", self.move_confidence)
                     x_rel, y_rel, th_rel, score_rel = self.global_relocalise(
                         first_scan_pts
                     )
                     pose_seed = (x_rel, y_rel, th_rel)
+                print(f"{datetime.now()}: 2(c) Relocalise score: {score_rel}")
 
             # At this point, pose_seed is our best estimate before micro-map
         else:
             pose_seed = (self.x, self.y, self.theta)
             self.first_ever_scan = False
-            print("First ever scan - using initial pose guess without refinement:", pose_seed)
+            print(f"{datetime.now()}: 1 & 2: First ever scan - using initial pose guess without refinement")
             
         # ------------------------------------------------------------
         # 3. Build local micro-map from stationary scans
         # ------------------------------------------------------------
+        print(f"{datetime.now()}: 3. Building local map from this sweep's points, with pose seed: : {pose_seed[0]:.0f},{pose_seed[1]:.0f} @ {math.degrees(pose_seed[2]):.0f}")
         local_map = self.build_local_map_from_points(
             pose_seed,
-            size_m=4.0,
-            resolution_m=self.resolution_m
+            size_m=config.map_size,
         )
 
         # ------------------------------------------------------------
         # 4. Align local micro-map to global map
         # ------------------------------------------------------------
+        print(f"{datetime.now()}: 4. Aligning local map to global map")
         refined_pose = self.align_local_map_to_global(
             local_map,
             pose_seed,
@@ -652,6 +639,7 @@ class ICP_SLAM:
         # ------------------------------------------------------------
         # 5. Merge local micro-map into global log-odds map
         # ------------------------------------------------------------
+        print(f"{datetime.now()}: 5. Merging local map to global map")
         self.merge_local_map_into_global(local_map, refined_pose)
 
         # ------------------------------------------------------------
@@ -660,21 +648,12 @@ class ICP_SLAM:
         self.update_internal_maps()
         
         self.scans_mm_stationary.clear()  # Clear stored scans after processing
-        self.first_scan = True  # Reset for next stationary phase
 
-    def update(self, scan_mm, heading_deg, avg_move_heading_deg, distance_mm, move_confidence=1.0):
+    def update(self, scan_mm):
         pts = self.scan_to_points(scan_mm)
         if pts.shape[0] == 0:
             return
 
         # Store scan for building local micro-maps during stationary phases
         self.scans_mm_stationary.append(pts)
-        if self.first_scan:
-            self.first_scan = False
-            self.distance_moved_mm = distance_mm
-            # Convert compass heading to SLAM frame: 0°=north, CCW+
-            self.heading_deg = 90.0 - heading_deg
-            self.theta = math.radians(self.heading_deg)
-            self.avg_move_heading_deg = 90.0 - avg_move_heading_deg
-            self.move_confidence = move_confidence
 

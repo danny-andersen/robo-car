@@ -169,7 +169,7 @@ LIDAR_OFFSET_DEG = 0.0  # If LIDAR is not perfectly front-facing, set this to th
 MAP_SIZE_PIXELS = 800  # Occupancy grid width/height
 MAP_SIZE_METERS = 16.0  # Map width/height in meters
 
-map_size = 6.0
+map_size = 12.0
 map_resolution_m = 0.02
 
 # Log-odds parameters 

@@ -164,13 +164,13 @@ class MoveVeto:
     def adjust_move(self, move, obstacles, max_distance_mm=1000):
         bearing, distance  = move
 
-        print("Original move:", move)
+        # print("Original move:", move)
         # 1. Clip long moves
         if distance > max_distance_mm:
             distance = max_distance_mm
 
         # 2. Adjust bearing to avoid ultrasonic obstacles (shouldnt need to as candidate moves should already be filtered)
-        bearing, distance = self.adjust_ultrasonic(move, obstacles)
+        # bearing, distance = self.adjust_ultrasonic(move, obstacles)
         
         # 2. Clip moves that enter unknown space
         x0, y0, th = self.slam.get_pose()

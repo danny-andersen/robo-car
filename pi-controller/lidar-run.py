@@ -1,6 +1,6 @@
 import queue
 import threading
-import datetime
+from datetime import datetime
 import time
 import numpy as np
 import json
@@ -18,7 +18,7 @@ def save_worker_thread(slam, save_queue):
         task = save_queue.get()   # blocks until needed
 
         if task == "save":
-            print("Saving SLAM map and poses...")
+            print(f"{datetime.now()}: Index {config.save_index}: Saving SLAM map and poses...")
             # Extract map + pose safely
             map = slam.get_map().copy()
             explorationManager: ExplorationManager = config.explorerManager
@@ -31,7 +31,7 @@ def save_worker_thread(slam, save_queue):
             np.save(f"{config.output_dir}/map_{config.save_index:04d}.npy", map)
 
             # Save pose and frontier data with timestamp
-            t = datetime.datetime.now()
+            t = datetime.now()
 
             data = {
                 "timestamp": t.timestamp(),
@@ -69,7 +69,7 @@ def save_worker_thread(slam, save_queue):
 
 
 if __name__ == '__main__':
-    slam = ICP_SLAM(map_size_m=6.0, resolution=0.02)
+    slam = ICP_SLAM()
     reader = LD19Reader(config.USB_SERIAL_PORT)
     reader.start()
 
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     )
     save_thread.start()
         
-    config.explorerManager = ExplorationManager(slam=slam, resolution_m=0.02)
+    config.explorerManager = ExplorationManager(slam=slam)
     state_monitor = RobotStateMonitor(save_queue, reader=reader, explorer_manager=config.explorerManager)
     
     config.piStatus["systemReady"] = 1
