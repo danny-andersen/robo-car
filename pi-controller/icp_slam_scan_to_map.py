@@ -67,9 +67,7 @@ class ICP_SLAM:
          # Thresholds
         self.p_occ = 0.7
         self.p_free = 0.3
-        self.icp_good_threshold = 1.0  # ICP error threshold for deciding when to trust ICP vs do global relocalisation
-        self.L_min = -8.0
-        self.L_max = 8.0
+        self.icp_good_threshold = 0.5  # ICP error threshold for deciding when to trust ICP vs do global relocalisation
 
          # Cached views
         self.prob = None
@@ -197,7 +195,7 @@ class ICP_SLAM:
 
                 local.L[cy, cx] += occ_logodds
 
-            np.clip(local.L, self.L_min, self.L_max, out=local.L)
+            np.clip(local.L, config.L_MIN, config.L_MAX, out=local.L)
 
         return local
 
@@ -302,7 +300,7 @@ class ICP_SLAM:
         xs = xs[valid]
 
         self.L[gy, gx] += local_map.L[ys, xs]
-        self.L = np.clip(self.L, self.L_min, self.L_max)
+        self.L = np.clip(self.L, config.L_MIN, config.L_MAX)
 
 
     # --------------------------------------------------------- 
@@ -327,14 +325,13 @@ class ICP_SLAM:
         d = a - b
         return (d + math.pi) % (2 * math.pi) - math.pi
 
-
     def convert_bearing_from_slam_frame(self, bearing_deg):
         # Convert compass bearing (0°=north, CW+) from SLAM frame (0°=east, CCW+)
         # Adjust for theta_offset to keep SLAM world frame locked to initial robot orientation
         if (bearing_deg < 0):
             bearing_deg += 360.0
         return bearing_deg % 360.0
-    
+
     # ------------------------------------------------------------
     # Translation-only ICP using distance field
     # ------------------------------------------------------------
@@ -457,15 +454,7 @@ class ICP_SLAM:
 
         return (*best_pose, best_score)
 
-    def global_relocalise(self, pts,
-                        rot_step_deg=2.0,
-                        trans_step_cells=10):
-        """
-        Global relocalisation using distance-field scoring.
-        Searches the entire map at coarse resolution.
-        pts: Nx2 scan points in robot frame (mm)
-        """
-
+    def global_relocalise(self, pts, rot_step_deg=5.0, coarse=10):
         self.update_internal_maps()
 
         h, w = self.dist_field.shape
@@ -474,44 +463,64 @@ class ICP_SLAM:
         px = pts[:, 0]
         py = pts[:, 1]
 
-        best_score = -1e18
-        best_pose = (self.x, self.y, self.theta)
+        # Downsample distance field
+        df = self.dist_field[::coarse, ::coarse]
+        hc, wc = df.shape
 
-        # Search headings 0..360
+        # Precompute rotated scans
+        rotations = []
         for th_deg in range(0, 360, int(rot_step_deg)):
             th = math.radians(th_deg)
-            c = math.cos(th)
-            s = math.sin(th)
+            c, s = math.cos(th), math.sin(th)
+            wx = c * px - s * py
+            wy = s * px + c * py
+            rotations.append((th_deg, wx, wy))
 
-            # Rotate scan once per heading
-            wx_base = c * px - s * py
-            wy_base = s * px + c * py
+        best_score = -1e18
+        best_pose = None
 
-            # Search translation over entire map
-            for gy in range(0, h, trans_step_cells):
-                for gx in range(0, w, trans_step_cells):
+        # Vectorised translation grid
+        gx = np.arange(wc) * coarse
+        gy = np.arange(hc) * coarse
+        GX, GY = np.meshgrid(gx, gy)
 
-                    # Convert grid cell to world mm
-                    wx = gx * cell_mm
-                    wy = (h - 1 - gy) * cell_mm
+        WX = GX * cell_mm
+        WY = (h - 1 - GY) * cell_mm
 
-                    # Apply translation
-                    wx_pts = wx + wx_base
-                    wy_pts = wy + wy_base
+        for th_deg, wx_base, wy_base in rotations:
+            # Broadcast scan points over translation grid
+            wx_pts = WX[..., None] + wx_base
+            wy_pts = WY[..., None] + wy_base
 
-                    gx_pts = (wx_pts / cell_mm).astype(np.int32)
-                    gy_pts = (h - 1 - (wy_pts / cell_mm)).astype(np.int32)
+            gx_pts = (wx_pts / cell_mm).astype(np.int32)
+            gy_pts = (h - 1 - (wy_pts / cell_mm)).astype(np.int32)
 
-                    valid = (gx_pts >= 0) & (gx_pts < w) & (gy_pts >= 0) & (gy_pts < h)
-                    if not np.any(valid):
-                        continue
+            valid = (gx_pts >= 0) & (gx_pts < w) & (gy_pts >= 0) & (gy_pts < h)
 
-                    df_vals = self.dist_field[gy_pts[valid], gx_pts[valid]]
-                    score = -np.mean(df_vals)
+            # Score all translations at once
+            # df_vals = np.where(valid, self.dist_field[gy_pts, gx_pts], 255)
+            # Allocate output
+            df_vals = np.full(gx_pts.shape, 255, dtype=np.float32)
 
-                    if score > best_score:
-                        best_score = score
-                        best_pose = (wx, wy, th)
+            # Extract only valid indices
+            gyv = gy_pts[valid]
+            gxv = gx_pts[valid]
+
+            # Safe indexing
+            df_vals[valid] = self.dist_field[gyv, gxv]
+ 
+            scores = -np.mean(df_vals, axis=2)
+
+            # Find best
+            idx = np.unravel_index(np.argmax(scores), scores.shape)
+            score = scores[idx]
+
+            if score > best_score:
+                gyc, gxc = idx
+                wx = GX[gyc, gxc] * cell_mm
+                wy = (h - 1 - GY[gyc, gxc]) * cell_mm
+                best_score = score
+                best_pose = (wx, wy, math.radians(th_deg))
 
         return (*best_pose, best_score)
 
@@ -577,15 +586,15 @@ class ICP_SLAM:
                     self.move_confidence
                 )
 
-                icp_threshold = self.icp_good_threshold * (0.5 + 0.5 * self.move_confidence)
+                # icp_threshold = self.icp_good_threshold * (0.5 + 0.5 * self.move_confidence)
 
-                if icp_error < icp_threshold:
+                if icp_error < self.icp_good_threshold:
                     # ICP succeeded → use it as seed
                     print(f"{datetime.now()}: ICP refinement successful with error:", icp_error)
                     pose_seed = (x_icp, y_icp, theta_icp)
                 else:
                     # ICP failed → fall back to relocalisation
-                    print(f"{datetime.now()}: ICP refinement failed with error:", icp_error, "exceeding threshold:", icp_threshold)
+                    print(f"{datetime.now()}: ICP refinement failed with error:", icp_error, "exceeding threshold:", self.icp_threshold)
                     relocalise = True
             else:
                 relocalise = True
