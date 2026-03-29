@@ -66,22 +66,23 @@ void setup() {
 void loop() {
   lastLoopTime = millis();
   wdt_reset();
+  // readBearingAndAttitude(&systemStatus.currentBearing, &systemStatus.pitch, &systemStatus.roll);
+  systemStatus.currentBearing = getCompassBearing();
+  currentDirectionRad = getCompassBearingRads();
+  readAttitude(&(systemStatus.pitch), &(systemStatus.roll));
+
   if (leftGround()) {
     // if (Serial) Serial.println("Left ground!");
     systemStatus.robotState = OFF_GROUND;
     sendStopMotorCmd();
     currentDriveState = STOPPED;
     drive(STOP, currentDirectionRad, 0);
-
+    updateStatus();
   } else if (systemStatus.robotState == OFF_GROUND) {
     //Back on the ground - restart from beginning
     systemStatus.robotState = SWEEP;
+    updateStatus();
   }
-
-  // readBearingAndAttitude(&systemStatus.currentBearing, &systemStatus.pitch, &systemStatus.roll);
-  systemStatus.currentBearing = getCompassBearing();
-  currentDirectionRad = getCompassBearingRads();
-  readAttitude(&(systemStatus.pitch), &(systemStatus.roll));
 
   if (statusTimer > STATUS_TIME) {
     statusTimer = 0;
