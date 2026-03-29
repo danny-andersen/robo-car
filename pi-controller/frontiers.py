@@ -38,8 +38,10 @@ class Explorer:
         dist_mm = math.sqrt(dx*dx + dy*dy)
         bearing = math.atan2(dy, dx)
         bearing_world_deg = 90 - math.degrees(bearing)
+        # Normalize to 0–360
+        norm_bearing = (bearing_world_deg + 360) % 360
 
-        return bearing_world_deg, dist_mm
+        return norm_bearing, dist_mm
 
     def raycast_into_map(self, grid, px, py, angle, max_range):
         r = 0.0
@@ -269,7 +271,7 @@ class ExplorationManager:
         # 6. Plan A* path to the chosen cluster centroid
         # ------------------------------------------------------------
         if self.target is not None:
-            print(f"{datetime.now()}: Chosen target coords mm: {self.target[0]},{self.target[1]}")
+            print(f"{datetime.now()}: Chosen target coords mm: {self.target[0]:.0f},{self.target[1]:.0f}")
             # path = self.explorer.astar(occ_img, (robot_gx, robot_gy), self.target)
             # if not path or len(path) < 2:
             #     print("No path to target or already at target")
@@ -282,7 +284,7 @@ class ExplorationManager:
             #     if next_waypoint:
                     # print(f"Next_waypoint to {self.target}: {next_waypoint} ")
             move = self.explorer.compute_move_mm(robot_x_mm, robot_y_mm, self.target)
-            print(f"{datetime.now()}: Proposed move: {move}")
+            print(f"{datetime.now()}: Proposed move: {move[0]:.1f}mm, {move[1]:.1f} degs")
             next_move = self.veto.adjust_move(move, self.obstacles)
             # if next_move:
             #     break
@@ -294,7 +296,7 @@ class ExplorationManager:
             world_bearing = self.slam.convert_bearing_from_slam_frame(next_move[0])
             self.next_waypoint = (world_bearing, next_move[1])  # Store for logging
             next_move = (world_bearing, next_move[1]/10.0)  # convert mm to cm
-            print(f"{datetime.now()}: Next move (bearing, distance_cm): {self.next_waypoint} to target {self.target}")
+            print(f"{datetime.now()}: Next move: {next_move[1]:.0f}cm @ {next_move[0]:.0f} deg to target {self.target[0]:.0f}mm,{self.target[1]:.0f}mm ")
             return next_move
         else:
             # No safe move available - Let the robot decide what to do (e.g. rotate in place)

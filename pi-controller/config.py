@@ -158,7 +158,7 @@ ERROR_FIELD_NAMES = [
   "PI_RETRIED",
 ]
 
-lastBootTime = 0
+lastBootTimeMs = 0
 
 # LIDAR
 USB_SERIAL_PORT = "/dev/ttyUSB0"  # USB serial port for LIDAR data
