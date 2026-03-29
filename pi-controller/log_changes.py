@@ -32,9 +32,9 @@ def _flatten_state():
             else:
                 flat[f"systemStatus.{k}"] = f"UNKNOWN({v})" 
         elif k == "timestamp": 
-            abstime = config.lastBootTime + v/1000.0  # Timestamp is ms since boot
-            dt = datetime.fromtimestamp(abstime)
-            dt += timedelta(milliseconds=(v % 1000))   # Add back the ms part for better resolution in logs    
+            abs_timeMs = config.lastBootTimeMs + v  # Timestamp is ms since boot - add this to the absolute time it was booted
+            dt = datetime.fromtimestamp(abs_timeMs / 1000.0)
+            dt += timedelta(milliseconds=(abs_timeMs % 1000))   # Add back the ms part for better resolution in logs    
             flat[f"systemStatus.{k}"] = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # Format with ms precision
         else:
             flat[f"systemStatus.{k}"] = v

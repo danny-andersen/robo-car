@@ -60,7 +60,7 @@ def on_receive(cmd, data):
         if len(data) >= 1+config.SystemStatusStruct.size:
             payload = data[1:1+config.SystemStatusStruct.size]
             unpacked = config.SystemStatusStruct.unpack(payload)
-            (config.systemStatus["timestamp"],
+            (config.systemStatus["timestamp"], # Milliseconds since robot was booted
             config.systemStatus["humidity"],
             config.systemStatus["tempC"],
             config.systemStatus["batteryVoltage"],
@@ -78,7 +78,9 @@ def on_receive(cmd, data):
             # print("System status updated:", config.systemStatus)
             # print(f"Payload data: {len(data)} bytes, {data} {unpacked}")
             if (config.systemStatus["robotState"] == 0):
-                config.lastBootTime = datetime.now().timestamp()
+                #Robot Arduino has been reset - reset the zero time (which was timestamp millis ago)
+                nowTime = datetime.now()
+                config.lastBootTimeMs = (nowTime.timestamp() * 1000) - config.systemStatus["timestamp"]
                 # print("Robot state: INIT\r")
     elif cmd == config.REQ_STATUS_CMD:
         pass  # No additional data to process
