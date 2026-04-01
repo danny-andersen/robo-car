@@ -1,7 +1,7 @@
 import config
 from datetime import datetime
 
-from frontiers import ExplorationManager
+from explorer import ExplorationManager
 from proximity_scan import processProximityScan
 
 
@@ -43,13 +43,13 @@ class RobotStateMonitor:
                     if not self.driveStarted and state == config.ROBOT_STATE_NAMES.index("DRIVE"):
                         self.driveStarted = True
                         self.move_confidence = 0.9  # Default confidence in distance travelled measurement
-                    elif (state == config.ROBOT_STATE_NAMES.index("ROTATING") or \
+                    if self.driveStarted and ((state == config.ROBOT_STATE_NAMES.index("ROTATING") or \
                         state == config.ROBOT_STATE_NAMES.index("ROTATING_LEFT") or \
                             state == config.ROBOT_STATE_NAMES.index("ROTATING_RIGHT") or \
                                 state == config.ROBOT_STATE_NAMES.index("ROTATING_LEFT_BLOCKED_RIGHT") or \
                                     state == config.ROBOT_STATE_NAMES.index("ROTATING_RIGHT_BLOCKED_LEFT") or \
                                         state == config.ROBOT_STATE_NAMES.index("ROTATING_FRONT_BLOCKED_BACKING_OUT") or \
-                                            state == config.ROBOT_STATE_NAMES.index("ROTATING_REAR_BLOCKED_GO_FORWARD")) \
+                                            state == config.ROBOT_STATE_NAMES.index("ROTATING_REAR_BLOCKED_GO_FORWARD"))) \
                           and self.driveStarted:
                         # We have started driving and then rotated, so distance travelled is likely to be inaccurate due to wheel slip during rotation, so discard it
                         print(f"{datetime.now()}: Low confidence in distance travelled due to rotation in drive")
@@ -57,14 +57,15 @@ class RobotStateMonitor:
                             self.move_confidence = 0.2
                         rotated_during_drive = True
                         break
-                    if state == config.ROBOT_STATE_NAMES.index("ROTATING_FRONT_BLOCKED_BACKING_OUT") or \
+                    if not self.driveStarted and (state == config.ROBOT_STATE_NAMES.index("ROTATING_FRONT_BLOCKED_BACKING_OUT") or \
                                 state == config.ROBOT_STATE_NAMES.index("ROTATING_LEFT_BLOCKED_RIGHT") or \
                                     state == config.ROBOT_STATE_NAMES.index("ROTATING_RIGHT_BLOCKED_LEFT") or \
                                         state == config.ROBOT_STATE_NAMES.index("ROTATING_FRONT_BLOCKED_BACKING_OUT") or \
-                                            state == config.ROBOT_STATE_NAMES.index("ROTATING_REAR_BLOCKED_GO_FORWARD"):
-                        #We didnt rotate on the spot, so cant trust the location
+                                            state == config.ROBOT_STATE_NAMES.index("ROTATING_REAR_BLOCKED_GO_FORWARD")):
+                        #We didnt rotate on the spot, so starting location is less reliable
                         move_while_rotating = True
-                        self.move_confidence = 0.2
+                        if self.move_confidence > 0.5:
+                            self.move_confidence = 0.5
                         self.startDriveHeading = None # Clear the start drive heading as we can no longer rely on it for SLAM updates during the sweep if we rotated during the drive
                         print(f"{datetime.now()}: Didnt rotate on the spot so cant trust move distance")
                         break
@@ -73,14 +74,15 @@ class RobotStateMonitor:
                     # We never started driving, we just probably rotated on the spot, so we can be confident that we didnt actually move, but we can still use the current bearing to update SLAM during the sweep
                     print(f"{datetime.now()}: Did not start driving - no distance travelled")
                     self.distance_travelled_since_last_sweep = 0
-                    if self.move_confidence > 0.9:
-                        self.move_confidence = 0.9 #High degree of confidence that we did not actually move, but we can still use the current bearing to update SLAM during the sweep
+                    if self.move_confidence > 0.7:
+                        self.move_confidence = 0.7 #High degree of confidence that we did not actually move, but we can still use the current bearing to update SLAM during the sweep
                     self.startDriveHeading = None # Clear the start drive heading as we can no longer rely on it for SLAM updates during the sweep if we rotated during the drive
                 if self.startDriveHeading is not None:
                     bearing_diff = abs(current_bearing - self.startDriveHeading)
                     if bearing_diff > 30 and bearing_diff < 330:
                         print(f"{datetime.now()}: Poor confidence in distance travelled since last sweep due to large change in bearing during drive. Start bearing:", self.startDriveHeading, "Current bearing:", current_bearing)
-                        self.move_confidence = 0.6
+                        if self.move_confidence > 0.6:
+                            self.move_confidence = 0.6
                     # Calculate an average bearing during the drive to use for SLAM updates, which may be more accurate than just using the current bearing at the end of the drive if there was some rotation during the drive
                     self.avg_moving_bearing = config.average_heading(self.startDriveHeading, current_bearing)
                     if self.move_confidence > 0.9:
@@ -90,19 +92,20 @@ class RobotStateMonitor:
                 if rotated_during_drive:
                     if self.driveStarted:
                         print(f"{datetime.now()}: Moved while rotating - low confidence in distance travelled due to rotation in drive")
-                        if self.move_confidence > 0.1:
-                            self.move_confidence = 0.1
+                        if self.move_confidence > 0.2:
+                            self.move_confidence = 0.2
                     else:
                         #Zero distance travelled
                         self.distance_travelled_since_last_sweep = 0
                         self.startDriveHeading = None # Clear the start drive heading as we can no longer rely on it for SLAM updates during the sweep if we rotated during the drive
-                        if self.move_confidence > 0.3:
-                            self.move_confidence = 0.3 
+                        if self.move_confidence > 0.6:
+                            self.move_confidence = 0.6 
                         print(f"{datetime.now()}: Moved while rotating without starting drive - low confidence in distance travelled due to rotation without drive:", [config.ROBOT_STATE_NAMES[s] for s in self.statesSinceLastSweep])
                 # If the sequence contains BACK_OUT or OFF_GROUND, then we should discard the distance travelled since last sweep, as it is likely to be very inaccurate
                 if config.ROBOT_STATE_NAMES.index("BACK_OUT") in self.statesSinceLastSweep or \
-                        config.ROBOT_STATE_NAMES.index("OFF_GROUND") in self.statesSinceLastSweep:
-                    print(f"{datetime.now()}: Low confidence in distance travelled since last sweep due to BACK_OUT or OFF_GROUND in state sequence")
+                        config.ROBOT_STATE_NAMES.index("OFF_GROUND") in self.statesSinceLastSweep or \
+                        config.ROBOT_STATE_NAMES.index("UTURN_SWEEP") in self.statesSinceLastSweep:
+                    print(f"{datetime.now()}: Low confidence in distance travelled since last sweep due to BACK_OUT, OFF_GROUND or UTURN_SWEEP in state sequence")
                     self.startDriveHeading = None # Clear the start drive heading as we can no longer rely on it for SLAM updates during the sweep if we rotated during the drive
                     self.distance_travelled_since_last_sweep = 0
                     if self.move_confidence > 0.1:
