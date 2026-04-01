@@ -7,7 +7,8 @@ from move_veto import MoveVeto
 import config
 
 class Explorer:
-    def __init__(self, map_pixels, resolution_m):
+    def __init__(self, slam, map_pixels, resolution_m):
+        self.slam : ICP_SLAM = slam
         self.resolution_m = resolution_m  # meters per cell
         self.map_pixels = map_pixels
 
@@ -70,16 +71,15 @@ class Explorer:
 
         return result, r
 
-    def sample_candidate_poses(self, robot_x, robot_y, radii=(0.6, 1.0), num_angles=12):
+    def sample_candidate_poses(self, robot_x, robot_y, radii=0.6, num_angles=12):
         poses = []
         angle_factor = 2 * math.pi/ num_angles
-        for r in radii:
-            r_mm = r * 1000
-            for i in range(num_angles):
-                a = angle_factor * i
-                px = robot_x + r_mm * math.cos(a)
-                py = robot_y + r_mm * math.sin(a)
-                poses.append((px, py))
+        r_mm = radii * 1000
+        for i in range(num_angles):
+            a = angle_factor * i
+            px = robot_x + r_mm * math.cos(a)
+            py = robot_y + r_mm * math.sin(a)
+            poses.append((px, py))
         return poses
 
     def has_line_of_sight(self, grid, robot_pos, cx, cy):
@@ -109,10 +109,14 @@ class Explorer:
             if iy < 0 or iy >= grid.shape[0] or ix < 0 or ix >= grid.shape[1]:
                 return False
 
-            cell = config.classify_cell(grid[iy, ix])
-
-            if cell == "occupied":
+            # Use distance field to check for occupied cells along the path to the target
+            if self.slam.dist_field[iy, ix] < config.robot_radius_cells:
                 return False
+
+            # cell = config.classify_cell(grid[iy, ix])
+
+            # if cell == "occupied":
+            #     return False
 
         return True
 
@@ -197,30 +201,39 @@ class Explorer:
         return gain
     
     def choose_next_best_view(self, grid, robot_x, robot_y, max_range=2000):
-        # 1) sample
-        poses = self.sample_candidate_poses(robot_x, robot_y)
-
-        # 2) filter
-        poses = self.filter_candidate_poses(grid, robot_x, robot_y, poses)
-        if not poses:
-            print("No candidate targets/poses found!")
-            return None, []  # no NBV
-        # else:
-        #     print(f"Candidate targets: {len(poses)}")
-
-        # 3) info gain per pose
-        gains = {}
-        for px, py in poses:
-            gains[(px, py)] = self.compute_information_gain(grid, px, py, max_range)
-
-        # 4) score and pick best
+        distance = [0.6, 1.0, 1.5]
         best_pose = None
-        best_score = -1e9
-        for (px, py) in poses:
-            s = self.score_pose(px, py, robot_x, robot_y, gains[(px, py)])
-            if s > best_score:
-                best_score = s
-                best_pose = (px, py)
+        poses = []
+        gains = {}
+        for d in distance:
+            # 1) sample
+            d_poses = self.sample_candidate_poses(robot_x, robot_y, radii=d)
+
+            # 2) filter
+            f_poses = self.filter_candidate_poses(grid, robot_x, robot_y, d_poses)
+            if not f_poses:
+                print(f"No candidate targets/poses found at radius {d}!")
+                continue
+            # else:
+            #     print(f"Candidate targets: {len(poses)}")
+            poses.append(f_poses)
+
+            # 3) info gain per pose
+            for px, py in f_poses:
+                gains[(px, py)] = self.compute_information_gain(grid, px, py, max_range)
+
+            # 4) score and pick best
+            best_pose = None
+            best_score = -1e9
+            for (px, py) in f_poses:
+                s = self.score_pose(px, py, robot_x, robot_y, gains[(px, py)])
+                if s > best_score:
+                    best_score = s
+                    best_pose = (px, py)
+            if best_score > 10:
+                # This one is worthwhile, otherwise increase distance
+                print(f"Found target {px:.0f},{py:.0f} with score of {best_score}")
+                break
 
         return best_pose, [(p, gains[p]) for p in poses]
     
@@ -234,7 +247,7 @@ class ExplorationManager:
         print(f"Explorer map pixels {self.map_pixels}")
 
         self.veto = MoveVeto(slam, self.resolution_m)
-        self.explorer = Explorer(self.map_pixels, self.resolution_m)
+        self.explorer = Explorer(slam, self.map_pixels, self.resolution_m)
 
         self.obstacles = []   # ultrasonic obstacles from robot
         self.clusters = []    # current frontier clusters

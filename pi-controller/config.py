@@ -171,6 +171,8 @@ MAP_SIZE_METERS = 16.0  # Map width/height in meters
 
 map_size = 12.0
 map_resolution_m = 0.02
+robot_radius_m = 0.1
+robot_radius_cells = robot_radius_m / robot_radius_m
 
 # Log-odds parameters 
 L_FREE = -0.4
