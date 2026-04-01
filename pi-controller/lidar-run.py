@@ -11,7 +11,7 @@ from robot_state_monitor import RobotStateMonitor
 from uart_slave import msg_process_thread, uart_rx_thread
 from ld19_reader import LD19Reader
 from icp_slam_scan_to_map import ICP_SLAM
-from frontiers import ExplorationManager
+from explorer import ExplorationManager
 
 def save_worker_thread(slam, save_queue):
     while True:
@@ -37,6 +37,7 @@ def save_worker_thread(slam, save_queue):
                 "timestamp": t.timestamp(),
                 "pose_index": config.save_index,
                 "robot_pose": pose,
+                "SLAM_scores": slam.slam_scores,
                 "frontier_clusters": clusters,
                 "candidate_targets": candidate_targets,
                 "chosen_target": chosen_target,

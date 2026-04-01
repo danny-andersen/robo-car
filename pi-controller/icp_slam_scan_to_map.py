@@ -16,6 +16,8 @@ class LocalMap:
         self.size_m = size_m
         self.pixels = int(size_m / self.resolution_m)
         self.L = np.zeros((self.pixels, self.pixels), dtype=np.float32)
+        self.slam_scores = (0, 0 ,0)
+
 
     def world_from_local(self, lx_mm, ly_mm, pose):
         """Transform local (mm) to world (mm) using pose (x,y,theta)."""
@@ -67,7 +69,7 @@ class ICP_SLAM:
          # Thresholds
         self.p_occ = 0.7
         self.p_free = 0.3
-        self.icp_good_threshold = 0.5  # ICP error threshold for deciding when to trust ICP vs do global relocalisation
+        self.icp_good_threshold = 0.01  # ICP error threshold for deciding when to trust ICP vs do global relocalisation
 
          # Cached views
         self.prob = None
@@ -467,9 +469,22 @@ class ICP_SLAM:
         df = self.dist_field[::coarse, ::coarse]
         hc, wc = df.shape
 
+        rot_window_deg=10.0   # +/- around current heading
+        rot_step_deg=1.0
+
+        # Current heading in degrees
+        theta_deg = math.degrees(self.theta) % 360
+
+        # Build a small set of candidate headings around theta
+        half = int(rot_window_deg // rot_step_deg)
+        rot_candidates = []
+        for k in range(-half, half + 1):
+            th_deg = (theta_deg + k * rot_step_deg) % 360
+            rot_candidates.append(th_deg)
+            
         # Precompute rotated scans
         rotations = []
-        for th_deg in range(0, 360, int(rot_step_deg)):
+        for th_deg in rot_candidates:
             th = math.radians(th_deg)
             c, s = math.cos(th), math.sin(th)
             wx = c * px - s * py
@@ -524,6 +539,41 @@ class ICP_SLAM:
 
         return (*best_pose, best_score)
 
+    def merge_scans(self, scans, angle_step_deg=1.0):
+        # scans = list of Nx2 arrays in robot frame (mm)
+        # Convert each scan to polar
+        all_angles = []
+        all_ranges = []
+
+        for pts in scans:
+            x = pts[:, 0]
+            y = pts[:, 1]
+            angles = np.degrees(np.arctan2(y, x)) % 360
+            ranges = np.hypot(x, y)
+            all_angles.append(angles)
+            all_ranges.append(ranges)
+
+        all_angles = np.concatenate(all_angles)
+        all_ranges = np.concatenate(all_ranges)
+
+        # Bin by angle
+        bins = int(360 / angle_step_deg)
+        merged_ranges = np.full(bins, np.inf)
+
+        for ang, r in zip(all_angles, all_ranges):
+            idx = int(ang // angle_step_deg)
+            merged_ranges[idx] = min(merged_ranges[idx], r)
+
+        # Convert back to Cartesian
+        merged_pts = []
+        for i in range(bins):
+            r = merged_ranges[i]
+            if np.isfinite(r):
+                ang = np.radians(i * angle_step_deg)
+                merged_pts.append([r * np.cos(ang), r * np.sin(ang)])
+
+        return np.array(merged_pts)
+
     def refine_pose_with_micro_map_and_merge(self, heading_deg, avg_move_heading_deg, distance_mm, confidence, has_reset):
         """
         Full stationary refinement pipeline:
@@ -554,7 +604,10 @@ class ICP_SLAM:
 
         # print("Number of scans in stationary buffer:", len(self.scans_mm_stationary))
         
+        self.slam_scores = [0, 0 ,0]
         if not self.first_ever_scan:
+            merged_pts = self.merge_scans(self.scans_mm_stationary)
+            
             # We cannot do any of this on the very first scan since we have no prior pose or map, so just skip to building the initial map. After the first scan, we have a pose guess and can start refining with micro-maps.
             # print("Refining pose with micro-map and merging into global map...")
             # ------------------------------------------------------------
@@ -568,24 +621,21 @@ class ICP_SLAM:
             y_pred = self.y + dy
             pose_guess = (x_pred, y_pred, self.theta)
 
-            # First scan points (for ICP / relocalisation)
-            first_scan_pts = self.scans_mm_stationary[0]
-
             # ------------------------------------------------------------
             # 2. ICP refinement + fallback relocalisation
             # ------------------------------------------------------------
             pose_seed = pose_guess
-            print(f"{datetime.now()}: 1. ICP Pose guess from motion prior: {x_pred:.0f},{y_pred:.0f} bearing {math.degrees(self.theta):.0f} with move confidence: {self.move_confidence}")
+            print(f"{datetime.now()}: 1. ICP Pose guess from motion prior: {x_pred:.0f},{y_pred:.0f} bearing {(360 + math.degrees(self.theta)) % 360:.0f} with move confidence: {self.move_confidence}")
 
             relocalise = False
             if self.move_confidence > 0.3:
                 # Try ICP around motion prior
                 x_icp, y_icp, theta_icp, icp_error = self.icp_scan_to_map(
-                    first_scan_pts,
+                    merged_pts,
                     pose_guess,
                     self.move_confidence
                 )
-
+                self.slam_scores[0] = float(icp_error)
                 # icp_threshold = self.icp_good_threshold * (0.5 + 0.5 * self.move_confidence)
 
                 if icp_error < self.icp_good_threshold:
@@ -594,25 +644,32 @@ class ICP_SLAM:
                     pose_seed = (x_icp, y_icp, theta_icp)
                 else:
                     # ICP failed → fall back to relocalisation
-                    print(f"{datetime.now()}: ICP refinement failed with error:", icp_error, "exceeding threshold:", self.icp_threshold)
+                    print(f"{datetime.now()}: ICP refinement failed with error:", icp_error, "exceeding threshold:", self.icp_good_threshold)
                     relocalise = True
             else:
                 relocalise = True
         
             if relocalise:        
-                # Low confidence in pose guess → skip ICP, go straight to relocalisation
-                if self.distance_moved_mm < 500.0 and self.move_confidence > 0.3:
-                    print(f"{datetime.now()}: 2(a). Performing local relocalisation around predicted pose with confidence in movement:", self.move_confidence)
-                    x_rel, y_rel, th_rel, score_rel = self.local_relocalise(
-                        first_scan_pts,
-                        pose_guess
-                    )
-                else:
-                    print(f"{datetime.now()}: 2(b) Performing global relocalisation with no confidence in movement:", self.move_confidence)
-                    x_rel, y_rel, th_rel, score_rel = self.global_relocalise(
-                        first_scan_pts
-                    )
-                    pose_seed = (x_rel, y_rel, th_rel)
+                # # Low confidence in pose guess → skip ICP, go straight to relocalisation
+                # global_reloc = False
+                # if self.distance_moved_mm < 500.0 and self.move_confidence > 0.3:
+                #     print(f"{datetime.now()}: 2(a). Performing local relocalisation around predicted pose with confidence in movement:", self.move_confidence)
+                #     x_rel, y_rel, th_rel, score_rel = self.local_relocalise(
+                #         merged_pts,
+                #         pose_guess
+                #     )
+                #     self.slam_scores[1] = getattr(score_rel, "tolist", lambda: score_rel)()
+                #     if score_rel > self.icp_good_threshold:
+                #         global_reloc = True
+                # else:
+                #     global_reloc = True
+                # if global_reloc:
+                print(f"{datetime.now()}: 2(b) Performing global relocalisation with no confidence in movement:", self.move_confidence)
+                x_rel, y_rel, th_rel, score_rel = self.global_relocalise(
+                    merged_pts
+                )
+                pose_seed = (x_rel, y_rel, th_rel)
+                self.slam_scores[2] = getattr(score_rel, "tolist", lambda: score_rel)()
                 print(f"{datetime.now()}: 2(c) Relocalise score: {score_rel}")
 
             # At this point, pose_seed is our best estimate before micro-map

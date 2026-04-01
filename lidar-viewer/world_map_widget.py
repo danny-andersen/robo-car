@@ -69,6 +69,7 @@ class WorldMapWidget(QtWidgets.QWidget):
         self.time_stamps = []
         self.map_history = []
         self.cluster_history = []
+        self.slam_score_history = []
         self.target_history = []
         self.status_history = []
         self.obstacle_history = []
@@ -136,6 +137,7 @@ class WorldMapWidget(QtWidgets.QWidget):
             #Load json data if not none
             self.time_stamps.append(data["timestamp"])
             self.cluster_history.append(data["frontier_clusters"])
+            self.slam_score_history.append(data["SLAM_scores"])
             self.candidate_target_history.append(data["candidate_targets"])
             if data["chosen_target"] is not None:
                 self.target_history.append(tuple(data["chosen_target"]))
@@ -779,6 +781,14 @@ class WorldMapWidget(QtWidgets.QWidget):
             QPointF(target_rect.left() + 10, target_rect.top() + 40),
             f"{tempC/10}°C RH: {humidity/10}% Battery: {battperc:.1f}%")
 
+    def draw_slam_scores(self, painter, target_rect):
+        slam_scores = self.slam_score_history[self.index]
+        painter.setPen(QColor(255, 255, 0))
+        painter.drawText(
+            QPointF(target_rect.left() + 10, target_rect.top() + 80),
+            f"ICP score: {slam_scores[0]:0.4f}, Local reloc {slam_scores[1]:0.4f}, Global reloc {slam_scores[2]:0.4f}"
+        )
+        
 
     def generate_arc_angles(self, a1, a2, steps=20):
         if a1 <= a2:
@@ -955,8 +965,9 @@ class WorldMapWidget(QtWidgets.QWidget):
         if self.show_bearing_line:
             self.draw_bearing_line(painter, target_rect, not candidate_coords_shown)
 
-        self.draw_mouse_coordinates(painter, target_rect)
         self.draw_status(painter, target_rect)
+        self.draw_mouse_coordinates(painter, target_rect)
+        self.draw_slam_scores(painter, target_rect)
         
 
         # Draw scan points
