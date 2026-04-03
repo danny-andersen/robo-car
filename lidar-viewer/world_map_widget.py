@@ -786,7 +786,8 @@ class WorldMapWidget(QtWidgets.QWidget):
         painter.setPen(QColor(255, 255, 0))
         painter.drawText(
             QPointF(target_rect.left() + 10, target_rect.top() + 80),
-            f"ICP score: {slam_scores[0]:0.4f}, Local reloc {slam_scores[1]:0.4f}, Global reloc {slam_scores[2]:0.4f}"
+            # f"ICP score: {slam_scores[0]:0.4f}, Local reloc {slam_scores[1]:0.4f}, Global reloc {slam_scores[2]:0.4f}"
+            f"ICP score: {slam_scores[0]:0.4f}, Global Coarse {slam_scores[2]:0.4f}, Med {slam_scores[3]:0.4f}, Fine {slam_scores[4]:0.4f}"
         )
         
 
