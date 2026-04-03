@@ -26,10 +26,11 @@ class RobotStateMonitor:
 
         self.avg_moving_bearing = current_bearing
         self.current_bearing = current_bearing
-        self.has_reset = False
+
         if robotState != self.last_state:
             self.statesSinceLastSweep.append(robotState)
             if (robotState == config.ROBOT_STATE_NAMES.index("SWEEP")):
+                self.has_reset = False
                 # We have just started a sweep, so we can use the distance travelled since the last sweep to update SLAM with the movement since the last sweep, which will help to keep the map and frontier information accurate for decision making during the sweep, but we need to determine how much confidence to place in the distance travelled measurement based on the sequence of states since the last sweep
                 self.distance_travelled_since_last_sweep = distance_travelled * 10.0  # convert cm to mm for SLAM and explorer manager updates
                 self.move_confidence = 1.0
@@ -111,9 +112,11 @@ class RobotStateMonitor:
                     if self.move_confidence > 0.1:
                         self.move_confidence = 0.1
                 if config.ROBOT_STATE_NAMES.index("INIT") in self.statesSinceLastSweep:
+                    # Robot has been restarted (probably watchdog failure since last sweep, so reset everything 
                     self.move_confidence = 0.0
                     self.distance_travelled_since_last_sweep = 0
                     self.has_reset = True
+                        
                 # Finally check the final bearing at the end of the drive is reasonably close to the bearing at the start of the drive (within 30 degrees), otherwise we may have had significant rotation during the drive which would make the distance travelled measurement inaccurate, so discard it
                 print(f"{datetime.now()}: Distance travelled since last sweep: {self.distance_travelled_since_last_sweep:.0f} mm on avg bearing {self.avg_moving_bearing:.0f} with confidence {self.move_confidence}")
             if robotState == config.ROBOT_STATE_NAMES.index("DRIVE"):
@@ -128,7 +131,7 @@ class RobotStateMonitor:
             if (robotState == config.ROBOT_STATE_NAMES.index("WAITING_FOR_DIRECTION")):
                 # Robot is waiting for direction - process map to determine next move
                 # Use the scans received during the last sweep to update SLAM 
-                print(f"{datetime.now()}: Refining pose with micro map and merging before determining next move for sweep")
+                print(f"{datetime.now()}: Refining pose at bearing {self.current_bearing} with micro map and merging before determining next move for sweep")
                 self.explorer_manager.slam.refine_pose_with_micro_map_and_merge(self.current_bearing, self.avg_moving_bearing, self.distance_travelled_since_last_sweep, self.move_confidence, self.has_reset)
                 #Firstly give it the obstacles from ultrasonic sweep to inform move veto
                 print(f"{datetime.now()}: Sending obstacles to explorer manager")
@@ -143,7 +146,6 @@ class RobotStateMonitor:
                 self.statesSinceLastSweep = []
                 self.move_confidence = 0.0
                 self.distance_travelled_since_last_sweep = 0.0
-                self.current_bearing = 0.0
                 self.driveStarted = False
                 print(f"{datetime.now()}: Move: {config.piStatus['directionToDrive']} deg for {config.piStatus['distanceToDrive']} mm")
                 # Trigger a save of the map and targets for debugging and analysis
