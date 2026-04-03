@@ -539,6 +539,150 @@ class ICP_SLAM:
 
         return (*best_pose, best_score)
 
+    def relocalise_coarse_retry(self, pts, pred_pose):
+
+        # BAD coarse result → retry around predicted pose
+        pred_x = pred_pose[0]
+        pred_y = pred_pose[1]
+        pred_th = pred_pose[2]
+
+        h, w = self.dist_field.shape
+        cell_mm = self.resolution_m * 1000
+
+        gx0 = int(pred_x / cell_mm)
+        gy0 = int((h - 1) - pred_y / cell_mm)
+
+        # Local coarse window
+        gx_range = range(gx0 - 80, gx0 + 80, 10)
+        gy_range = range(gy0 - 80, gy0 + 80, 10)
+
+        # Rotation window around predicted heading
+        th_deg0 = math.degrees(pred_th)
+        rot_candidates = [(th_deg0 + k) % 360 for k in range(-20, 21, 5)]
+
+        retry_pose = self.global_relocalise_local_window(
+            pts,
+            gx_range,
+            gy_range,
+            rot_candidates
+        )
+
+        rx, ry, rth, retry_score = retry_pose
+
+        return (rx, ry, rth), retry_score
+
+    def relocalise_medium(self, pts, coarse_pose,
+                        rot_window_deg=20,
+                        rot_step_deg=2,
+                        trans_window_cells=20,
+                        trans_step_cells=5):
+
+        cx, cy, cth = coarse_pose
+
+        # Convert coarse pose to grid
+        gx0 = int(cx / (self.resolution_m * 1000))
+        gy0 = int((self.dist_field.shape[0] - 1) - cy / (self.resolution_m * 1000))
+
+        # Build local search ranges
+        gx_range = range(gx0 - trans_window_cells,
+                        gx0 + trans_window_cells + 1,
+                        trans_step_cells)
+
+        gy_range = range(gy0 - trans_window_cells,
+                        gy0 + trans_window_cells + 1,
+                        trans_step_cells)
+
+        # Build rotation window
+        th_deg0 = math.degrees(cth)
+        rot_candidates = [
+            (th_deg0 + k * rot_step_deg) % 360
+            for k in range(-rot_window_deg // rot_step_deg,
+                            rot_window_deg // rot_step_deg + 1)
+        ]
+
+        return self.global_relocalise_local_window(
+            pts,
+            gx_range,
+            gy_range,
+            rot_candidates
+        )
+
+    def relocalise_fine(self, pts, medium_pose,
+                        rot_window_deg=4,
+                        rot_step_deg=1,
+                        trans_window_cells=6,
+                        trans_step_cells=1):
+
+        cx, cy, cth = medium_pose
+
+        gx0 = int(cx / (self.resolution_m * 1000))
+        gy0 = int((self.dist_field.shape[0] - 1) - cy / (self.resolution_m * 1000))
+
+        gx_range = range(gx0 - trans_window_cells,
+                        gx0 + trans_window_cells + 1,
+                        trans_step_cells)
+
+        gy_range = range(gy0 - trans_window_cells,
+                        gy0 + trans_window_cells + 1,
+                        trans_step_cells)
+
+        th_deg0 = math.degrees(cth)
+        rot_candidates = [
+            (th_deg0 + k * rot_step_deg) % 360
+            for k in range(-rot_window_deg // rot_step_deg,
+                            rot_window_deg // rot_step_deg + 1)
+        ]
+
+        return self.global_relocalise_local_window(
+            pts,
+            gx_range,
+            gy_range,
+            rot_candidates
+        )
+
+    def global_relocalise_local_window(self, pts, gx_range, gy_range, rot_candidates):
+
+        best_score = -1e18
+        best_pose = None
+
+        for th_deg in rot_candidates:
+            th = math.radians(th_deg)
+            c, s = math.cos(th), math.sin(th)
+
+            # Rotate scan once
+            wx_base = c * pts[:,0] - s * pts[:,1]
+            wy_base = s * pts[:,0] + c * pts[:,1]
+
+            for gx in gx_range:
+                for gy in gy_range:
+
+                    # Convert grid → world
+                    wx = gx * self.resolution_m * 1000
+                    wy = (self.dist_field.shape[0] - 1 - gy) * self.resolution_m * 1000
+
+                    # Apply translation
+                    wx_pts = wx + wx_base
+                    wy_pts = wy + wy_base
+
+                    # Convert to grid
+                    gx_pts = (wx_pts / (self.resolution_m * 1000)).astype(np.int32)
+                    gy_pts = (self.dist_field.shape[0] - 1 - (wy_pts / (self.resolution_m * 1000))).astype(np.int32)
+
+                    valid = (gx_pts >= 0) & (gx_pts < self.dist_field.shape[1]) & \
+                            (gy_pts >= 0) & (gy_pts < self.dist_field.shape[0])
+
+                    if not np.any(valid):
+                        continue
+
+                    df_vals = self.dist_field[gy_pts[valid], gx_pts[valid]]
+                    score = -np.mean(df_vals)
+
+                    if score > best_score:
+                        best_score = score
+                        best_pose = (wx, wy, th)
+
+        return (*best_pose, best_score)
+
     def merge_scans(self, scans, angle_step_deg=1.0):
         # scans = list of Nx2 arrays in robot frame (mm)
         # Convert each scan to polar
@@ -604,7 +748,7 @@ class ICP_SLAM:
 
         # print("Number of scans in stationary buffer:", len(self.scans_mm_stationary))
         
-        self.slam_scores = [0, 0 ,0]
+        self.slam_scores = [0, 0, 0, 0, 0]
         if not self.first_ever_scan:
             merged_pts = self.merge_scans(self.scans_mm_stationary)
             
@@ -625,7 +769,7 @@ class ICP_SLAM:
             # 2. ICP refinement + fallback relocalisation
             # ------------------------------------------------------------
             pose_seed = pose_guess
-            print(f"{datetime.now()}: 1. ICP Pose guess from motion prior: {x_pred:.0f},{y_pred:.0f} bearing {(360 + math.degrees(self.theta)) % 360:.0f} with move confidence: {self.move_confidence}")
+            print(f"{datetime.now()}: 1. ICP Pose guess from motion prior: {x_pred:.0f},{y_pred:.0f} bearing {(360 + math.degrees(self.theta))% 360:. 0f} with move confidence: {self.move_confidence}")
 
             relocalise = False
             if self.move_confidence > 0.3:
@@ -638,13 +782,13 @@ class ICP_SLAM:
                 self.slam_scores[0] = float(icp_error)
                 # icp_threshold = self.icp_good_threshold * (0.5 + 0.5 * self.move_confidence)
 
-                if icp_error < self.icp_good_threshold:
+                if icp_error < self.icp_good_threshold and abs(theta_icp - self.theta) < 30:
                     # ICP succeeded → use it as seed
                     print(f"{datetime.now()}: ICP refinement successful with error:", icp_error)
                     pose_seed = (x_icp, y_icp, theta_icp)
                 else:
                     # ICP failed → fall back to relocalisation
-                    print(f"{datetime.now()}: ICP refinement failed with error:", icp_error, "exceeding threshold:", self.icp_good_threshold)
+                    print(f"{datetime.now()}: ICP refinement failed with error {icp_error} and theta {(360 + math.degrees(theta_icp))% 360:. 0f}")
                     relocalise = True
             else:
                 relocalise = True
@@ -664,13 +808,28 @@ class ICP_SLAM:
                 # else:
                 #     global_reloc = True
                 # if global_reloc:
-                print(f"{datetime.now()}: 2(b) Performing global relocalisation with no confidence in movement:", self.move_confidence)
-                x_rel, y_rel, th_rel, score_rel = self.global_relocalise(
+                print(f"{datetime.now()}: 2(a) Performing global relocalisation with no prior")
+                x_rel, y_rel, th_rel, score_course = self.global_relocalise(
                     merged_pts
                 )
+                # If coarse result is bad, retry using best guess pose
+                if score_course <= -0.1:
+                    print(f"{datetime.now()}: 2(b) Retrying global relocalisation with prior {pose_seed[0]:.0f},{pose_seed[1]:.0f},{(360 + math.degrees(pose_seed[2])) % 360:.0f}", self.move_confidence)
+                    coarse_pose, score_course = self.relocalise_coarse_retry(
+                        merged_pts, pose_seed)
+                    x_rel, y_rel, th_rel = coarse_pose                                    
+                # 2. Medium
+                print(f"{datetime.now()}: 2(c) Medium relocalisation with prior {x_rel:.0f},{y_rel:.0f},{(360 + math.degrees(th_rel)) % 360:.0f}")
+                x_rel, y_rel, th_rel, score_med = self.relocalise_medium(merged_pts,(x_rel, y_rel, th_rel))
+
+                # 3. Fine
+                print(f"{datetime.now()}: 2(d) Fine relocalisation with prior {x_rel:.0f},{y_rel:.0f},{(360 + math.degrees(th_rel)) % 360:.0f}")
+                x_rel, y_rel, th_rel, score_fine = self.relocalise_fine(merged_pts, (x_rel, y_rel, th_rel))                
                 pose_seed = (x_rel, y_rel, th_rel)
-                self.slam_scores[2] = getattr(score_rel, "tolist", lambda: score_rel)()
-                print(f"{datetime.now()}: 2(c) Relocalise score: {score_rel}")
+                self.slam_scores[2] = getattr(score_course, "tolist", lambda: score_course)()
+                self.slam_scores[3] = getattr(score_med, "tolist", lambda: score_med)()
+                self.slam_scores[4] = getattr(score_fine, "tolist", lambda: score_fine)()
+                print(f"{datetime.now()}: 2(e) Relocalise position: {x_rel:.0f},{y_rel:.0f},{(360 + math.degrees(th_rel)) % 360:.0f} score: {score_fine}")
 
             # At this point, pose_seed is our best estimate before micro-map
         else:
