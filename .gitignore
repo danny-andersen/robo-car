@@ -62,3 +62,4 @@ lidar-viewer/venv/
 lidar-viewer/__pycache__/
 **/*.npy
 **/*.json
+lidar-viewer/slam_logs/*
