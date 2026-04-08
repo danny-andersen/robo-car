@@ -199,7 +199,7 @@ class MoveVeto:
                 safe_distance = (i - 1) * step_mm
                 break
 
-        print("Adjusted move:", (bearing, safe_distance))
+        # print("Adjusted move:", (bearing, safe_distance))
 
         # 4. If LIDAR obstacle blocks the adjusted move, veto
         if self.veto_lidar_path((bearing, safe_distance)):

@@ -68,8 +68,6 @@ class ICP_SLAM:
         self.theta = 0.0
         self.theta_offset = None
          # Thresholds
-        self.p_occ = 0.7
-        self.p_free = 0.3
         self.icp_good_threshold = 0.01  # ICP error threshold for deciding when to trust ICP vs do global relocalisation
 
          # Cached views
@@ -137,7 +135,10 @@ class ICP_SLAM:
         prob = 1.0 / (1.0 + np.exp(-self.L))
 
         # Occupancy mask
-        self.occ_mask = (prob >= self.p_occ)
+        self.occ_mask = (prob >= config.occ_threshold)
+
+        occ_ratio = np.mean(self.occ_mask)
+        # print("Occupied ratio:", occ_ratio)
 
         # Distance field (Euclidean)
         self.dist_field = distance_transform_edt(~self.occ_mask) * self.resolution_m
@@ -299,8 +300,8 @@ class ICP_SLAM:
         diff = (best - second) / denom
 
         # Ambiguous if peak is not at least 2% better
-        print(f"Rotation ambiguous score: {diff}")
-        return diff < 0.003
+        print(f"{datetime.now()}: Rotation ambiguous score: {diff}")
+        return diff < 0.002
 
     def translation_refine(self, pts_mm, x_guess_mm, y_guess_mm, theta_rad,
                         win_mm=150, step_mm=20):
@@ -351,7 +352,7 @@ class ICP_SLAM:
 
         # --- ROTATION ONLY ---
         # Coarse
-        (th1, sc1), c1 = self.rotation_search(local_pts_mm, pose_guess, 4.0, 1.0)
+        (th1, sc1), c1 = self.rotation_search(local_pts_mm, pose_guess, 6.0, 1.0)
 
         # for th, sc in c1:
         #     print(f"{math.degrees(th):.1f}° → {sc:.6f}")
@@ -1040,10 +1041,18 @@ class ICP_SLAM:
         if not self.first_ever_scan:
             local_pts_mm = self.extract_local_map_points(local_map)
             print(f"{datetime.now()}: 4. Align local map from this sweep to global map, with pose seed: : {pose_seed[0]:.0f},{pose_seed[1]:.0f} @ {config.map_rads_to_world(pose_seed[2]):.0f}")
-            self.x, self.y, self.theta, align_score, can_use = self.align_map_pts_to_global(local_pts_mm, pose_seed)
-            if not can_use:
+            x_map, y_map, theta_map, align_score, can_use = self.align_map_pts_to_global(local_pts_mm, pose_seed)
+            if can_use:
+                self.x = x_map
+                self.y = y_map
+                self.theta = theta_map
+            else:
                 #Couldnt align scans to the current map - reject and retry
-                print(f"{datetime.now()}: ** Scan alignment to map failed (score {align_score:.4f}")
+                print(f"{datetime.now()}: ** Scan alignment to map failed (score {align_score:.4f}) {self.x:.0f},{self.y:.0f} @ {config.map_rads_to_world(self.theta):.0f}")
+                self.x = x_pred
+                self.y = y_pred
+                self.scans_mm_stationary.clear()  # Clear stored scans after processing
+                self.first_ever_scan = False
                 return False
 
 

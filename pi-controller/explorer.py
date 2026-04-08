@@ -1,5 +1,6 @@
 import math
 import numpy as np
+from scipy.ndimage import distance_transform_edt
 from datetime import datetime
 
 from icp_slam_scan_to_map import ICP_SLAM
@@ -82,7 +83,32 @@ class Explorer:
             poses.append((px, py))
         return poses
 
-    def has_line_of_sight(self, grid, robot_pos, cx, cy):
+    def inflate_occupancy(self, grid):
+        # cell_mm = resolution_m * 1000
+        # robot_radius_cells = int(robot_radius_mm / cell_mm)
+
+        # print("Grid Distance field min/max:", np.min(self.slam.dist_field), np.max(self.slam.dist_field))
+        # print("Grid Occupied cells:", np.sum(grid))
+        # print("Free cells:", np.sum(~grid))
+        # print("Grid shape:", grid.shape)
+
+        # Occupied mask
+        occupied = grid > (255 * config.occ_threshold)
+        # print("Occupied cells:", np.sum(occupied))
+        # print("Free cells:", np.sum(~occupied))
+        # print("Grid shape:", grid.shape)
+        
+        # Distance transform on free space
+        dist = distance_transform_edt(~occupied)
+        # print("Inflated distance field min/max:", np.min(self.slam.dist_field), np.max(self.slam.dist_field))
+        inflated = dist <= config.robot_radius_cells
+        
+        # Inflate: mark all cells within robot radius as occupied
+        # inflated = self.slam.dist_field <= config.robot_radius_cells
+
+        return inflated.astype(np.uint8)  # 1 = inflated obstacle, 0 = free
+
+    def has_line_of_sight(self, inflated_grid, robot_pos, cx, cy):
         rx, ry = robot_pos
 
         dx = cx - rx
@@ -104,14 +130,18 @@ class Explorer:
 
             ix = int(round(x))
             iy = int(round(y))
-
             # Bounds check
-            if iy < 0 or iy >= grid.shape[0] or ix < 0 or ix >= grid.shape[1]:
+            if iy < 0 or iy >= inflated_grid.shape[0] or ix < 0 or ix >= inflated_grid.shape[1]:
                 return False
 
-            # Use distance field to check for occupied cells along the path to the target
-            if self.slam.dist_field[iy, ix] < config.robot_radius_cells:
+            if inflated_grid[iy, ix]:  # robot cannot fit here
                 return False
+
+            # if iy < 0 or iy >= grid.shape[0] or ix < 0 or ix >= grid.shape[1]:
+            #     return False
+            # # Use distance field to check for occupied cells along the path to the target
+            # if self.slam.dist_field[iy, ix] < config.robot_radius_cells:
+            #     return False
 
             # cell = config.classify_cell(grid[iy, ix])
 
@@ -161,7 +191,7 @@ class Explorer:
         dist = math.dist((px, py), (robot_x, robot_y))
         return w_ig * info_gain - w_dist * dist
 
-    def filter_candidate_poses(self, grid, robot_x, robot_y, poses):
+    def filter_candidate_poses(self, grid, inflated_grid, robot_x, robot_y, poses):
         H, W = grid.shape
         # print(f"Map dimensions: {W}, {H}")
         rx_cell = config.world_to_grid(robot_x, robot_y, self.map_pixels)   
@@ -178,7 +208,7 @@ class Explorer:
             if not config.is_free(grid[gy, gx]):
                 # print(f"Pose {gx},{gy} not free: {grid[gy, gx]}")
                 continue
-            if not self.has_line_of_sight(grid, rx_cell, gx, gy):
+            if not self.has_line_of_sight(inflated_grid, rx_cell, gx, gy):
                 # print(f"Pose {gx},{gy} not reachable")
                 continue
             if self.candidate_blocked_by_obstacle((robot_x/1000.0, robot_y/1000.0), px/1000.0, py/1000.0):
@@ -201,22 +231,23 @@ class Explorer:
         return gain
     
     def choose_next_best_view(self, grid, robot_x, robot_y, max_range=2000):
-        distance = [0.6, 1.0, 1.5]
+        distance = [0.6, 0.8, 1.0]
         best_pose = None
         poses = []
         gains = {}
+        inflated_grid = self.inflate_occupancy(grid)
         for d in distance:
             # 1) sample
             d_poses = self.sample_candidate_poses(robot_x, robot_y, radii=d)
 
             # 2) filter
-            f_poses = self.filter_candidate_poses(grid, robot_x, robot_y, d_poses)
+            f_poses = self.filter_candidate_poses(grid, inflated_grid, robot_x, robot_y, d_poses)
             if not f_poses:
-                print(f"No candidate targets/poses found at radius {d}!")
+                # print(f"No candidate targets/poses found at radius {d}!")
                 continue
             # else:
             #     print(f"Candidate targets: {len(poses)}")
-            poses.append(f_poses)
+            poses += f_poses
 
             # 3) info gain per pose
             for px, py in f_poses:
@@ -235,6 +266,7 @@ class Explorer:
                 print(f"Found target {px:.0f},{py:.0f} with score of {best_score}")
                 break
 
+        # print(f"Filtered Poses: {poses} have gains {gains}")
         return best_pose, [(p, gains[p]) for p in poses]
     
 
@@ -297,7 +329,7 @@ class ExplorationManager:
             #     if next_waypoint:
                     # print(f"Next_waypoint to {self.target}: {next_waypoint} ")
             move = self.explorer.compute_move_mm(robot_x_mm, robot_y_mm, self.target)
-            print(f"{datetime.now()}: Proposed move: {move[0]:.1f}mm, {move[1]:.1f} degs")
+            print(f"{datetime.now()}: Proposed move: {move[1]:.1f}mm, {move[0]:.1f} degs")
             next_move = self.veto.adjust_move(move, self.obstacles)
             # if next_move:
             #     break
@@ -315,6 +347,6 @@ class ExplorationManager:
             # No safe move available - Let the robot decide what to do (e.g. rotate in place)
             # return (config.NO_SAFE_DIRECTION, 0)  # No direction, no distance  
             print(f"{datetime.now()}: No safe move found, returning NO_SAFE_DIRECTION") 
-            self.world_bearing = config.NO_SAFE_DIRECTION
+            # self.world_bearing = config.NO_SAFE_DIRECTION
             return (config.NO_SAFE_DIRECTION, 0)  # No direction, no distance   
 

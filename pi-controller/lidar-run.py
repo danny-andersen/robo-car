@@ -22,10 +22,10 @@ def save_worker_thread(slam, save_queue):
             # Extract map + pose safely
             map = slam.get_map().copy()
             explorationManager: ExplorationManager = config.explorerManager
-            clusters = explorationManager.clusters
+            clusters = explorationManager.clusters.copy()
             chosen_target = explorationManager.target
             next_waypoint = explorationManager.next_waypoint
-            candidate_targets = explorationManager.candidate_targets
+            candidate_targets = explorationManager.candidate_targets.copy()
             pose = slam.get_pose()  # (x, y, theta)
             # Perform slow disk writes
             np.save(f"{config.output_dir}/map_{config.save_index:04d}.npy", map)

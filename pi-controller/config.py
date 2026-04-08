@@ -172,7 +172,7 @@ MAP_SIZE_METERS = 16.0  # Map width/height in meters
 map_size = 12.0
 map_resolution_m = 0.02
 robot_radius_m = 0.1
-robot_radius_cells = robot_radius_m / robot_radius_m
+robot_radius_cells = int(robot_radius_m / map_resolution_m)
 
 # Log-odds parameters 
 L_FREE = -0.4
@@ -180,12 +180,14 @@ L_OCC = +0.85
 L_MIN = -4.0
 L_MAX = +4.0
 
+occ_threshold = 0.7
+
 def is_free(I):
     p = I/255
-    return p < 0.5          # prob that cell is free or not been mapped yet
+    return p < occ_threshold          # prob that cell is free or not been mapped yet
 
 def is_occupied(I):
-    return I/255 >= 0.5          # fairly confident obstacle
+    return I/255 >= occ_threshold          # fairly confident obstacle
 
 def classify_cell(I):
     #Turn pixel intensity back to a probability that the cell on the map is occupied
@@ -194,10 +196,10 @@ def classify_cell(I):
     if p <= 0.1:
         return "unknown"  # not seen on LIDAR
 
-    if p < 0.50:
+    if p < occ_threshold:
         return "free"
 
-    if p >= 0.50:
+    if p >= occ_threshold:
         return "occupied"
     
     return "unknown"
@@ -241,6 +243,11 @@ output_dir = "./slam_logs"
 #     iy = map_pixels - 1 - iy  # flip Y so +Y world is up in the image
 #     return ix, iy
     
+def map_rads_to_world(rads):
+    degs = math.degrees(rads)
+    world_degs = 90 - degs
+    return (360 + world_degs) % 360         
+
 def world_to_grid(wx, wy, map_pixels, resolution_m=0.02):
     # Convert to numpy arrays without copying if already arrays
     wx = np.asarray(wx)
