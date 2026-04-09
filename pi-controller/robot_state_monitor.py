@@ -113,7 +113,7 @@ class RobotStateMonitor:
                         self.move_confidence = 0.1
                 if config.ROBOT_STATE_NAMES.index("INIT") in self.statesSinceLastSweep:
                     # Robot has been restarted (probably watchdog failure since last sweep, so reset everything 
-                    print(f"{datetime.now()}: ***** Robot has RESET - restarting map generation")
+                    print(f"{datetime.now()}: ***** Robot has RESET *****")
                     self.move_confidence = 0.0
                     self.distance_travelled_since_last_sweep = 0
                     self.has_reset = True
@@ -133,27 +133,28 @@ class RobotStateMonitor:
                 # Robot is waiting for direction - process map to determine next move
                 # Use the scans received during the last sweep to update SLAM 
                 print(f"{datetime.now()}: Refining pose at bearing {self.current_bearing} with micro map and merging before determining next move for sweep")
-                mapUpdated = self.explorer_manager.slam.refine_pose_with_micro_map_and_merge(self.current_bearing, \
+                map_updated = self.explorer_manager.slam.refine_pose_with_micro_map_and_merge(self.current_bearing, \
                     self.avg_moving_bearing, self.distance_travelled_since_last_sweep, \
                     self.move_confidence, self.has_reset)
-                print(f"Map updated? {mapUpdated}")
-                if mapUpdated:
-                    #Firstly give it the obstacles from ultrasonic sweep to inform move veto
-                    print(f"{datetime.now()}: Sending obstacles to explorer manager")
-                    self.explorer_manager.receive_obstacles(config.obstacles)
-                    # config.piStatus["directionToDrive"] = config.NO_SAFE_DIRECTION #Default to no safedirection, in case explorer manager fails to give one
-                    #Set PI status for direction and distance to move, which will be sent to robot on the next status response 
-                    print(f"{datetime.now()}: Determining next move for robot based on current map and obstacle information...")
-                    (bearing, distance) = self.explorer_manager.get_next_move()
-                    config.piStatus["directionToDrive"] = int(bearing)
-                    config.piStatus["distanceToDrive"] = int(distance)
-                    print(f"{datetime.now()}: Move: {config.piStatus['directionToDrive']} deg for {config.piStatus['distanceToDrive']} mm")
-                    # Trigger a save of the map and targets for debugging and analysis
-                    self.save_queue.put("save")
-                else:
-                    print(f"{datetime.now()}: Failed to update map as we appear to be lost - move and then retry")
-                    config.piStatus["directionToDrive"] = config.NO_SAFE_DIRECTION
-                    config.piStatus["distanceToDrive"] = 0
+                print(f"Map updated? {map_updated}")
+                # if map_updated:
+                #Even if we havent updated the map, proceed on the best guess basis
+                #Firstly give it the obstacles from ultrasonic sweep to inform move veto
+                print(f"{datetime.now()}: Sending obstacles to explorer manager")
+                self.explorer_manager.receive_obstacles(config.obstacles)
+                # config.piStatus["directionToDrive"] = config.NO_SAFE_DIRECTION #Default to no safedirection, in case explorer manager fails to give one
+                #Set PI status for direction and distance to move, which will be sent to robot on the next status response 
+                print(f"{datetime.now()}: Determining next move for robot based on current map and obstacle information...")
+                (bearing, distance) = self.explorer_manager.get_next_move(map_updated)
+                config.piStatus["directionToDrive"] = int(bearing)
+                config.piStatus["distanceToDrive"] = int(distance)
+                print(f"{datetime.now()}: Move: {config.piStatus['directionToDrive']} deg for {config.piStatus['distanceToDrive']} cm")
+                # Trigger a save of the map and targets for debugging and analysis
+                self.save_queue.put("save")
+                # else:
+                #     print(f"{datetime.now()}: Failed to update map as we appear to be lost - move and then retry")
+                #     config.piStatus["directionToDrive"] = config.NO_SAFE_DIRECTION
+                #     config.piStatus["distanceToDrive"] = 0
                 self.startDriveHeading = None
                 self.statesSinceLastSweep = []
                 self.move_confidence = 0.0
