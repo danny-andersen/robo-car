@@ -13,7 +13,7 @@ from ld19_reader import LD19Reader
 from icp_slam_scan_to_map import ICP_SLAM
 from explorer import ExplorationManager
 
-def save_worker_thread(slam, save_queue):
+def save_worker_thread(slam: ICP_SLAM, save_queue):
     while True:
         task = save_queue.get()   # blocks until needed
 
@@ -21,6 +21,7 @@ def save_worker_thread(slam, save_queue):
             print(f"{datetime.now()}: Index {config.save_index}: Saving SLAM map and poses...")
             # Extract map + pose safely
             map = slam.get_map().copy()
+            logodds = slam.L.copy()
             explorationManager: ExplorationManager = config.explorerManager
             clusters = explorationManager.clusters.copy()
             chosen_target = explorationManager.target
@@ -29,6 +30,14 @@ def save_worker_thread(slam, save_queue):
             pose = slam.get_pose()  # (x, y, theta)
             # Perform slow disk writes
             np.save(f"{config.output_dir}/map_{config.save_index:04d}.npy", map)
+            #Clean logodds and save as well
+            clean_logodds = slam.clean_logodds(logodds)
+            np.save(f"{config.output_dir}/logodds_{config.save_index:04d}.npy", clean_logodds)
+            #Save cleaned map view
+            p = 1 / (1 + np.exp(-clean_logodds))
+            map_clean = (p * 255).astype(np.uint8)
+            np.save(f"{config.output_dir}/map_clean_{config.save_index:04d}.npy", map_clean)
+
 
             # Save pose and frontier data with timestamp
             t = datetime.now()

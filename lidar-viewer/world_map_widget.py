@@ -68,6 +68,7 @@ class WorldMapWidget(QtWidgets.QWidget):
         self.poses = []
         self.time_stamps = []
         self.map_history = []
+        self.cleaned_map_history = []
         self.cluster_history = []
         self.slam_score_history = []
         self.target_history = []
@@ -80,8 +81,8 @@ class WorldMapWidget(QtWidgets.QWidget):
         self.show_grid = True
         self.show_bearing_line = True
         self.show_ultrasonic = True
-        self.show_candidates = True
-        self.show_target = True
+        self.show_clean_map = False
+        self.show_targets = True
         self.zoom = 1.0
         self.pan_x = 0
         self.pan_y = 0
@@ -89,9 +90,12 @@ class WorldMapWidget(QtWidgets.QWidget):
         self.show_scans = True
         
     def load_data(self):
-        self.map_history = self.load_map_history()
+        self.map_history = self.load_map_history("map_")
         if len(self.map_history) == 0:
             print("No map files found in the current directory.")
+        self.cleaned_map_history = self.load_map_history("map_clean_")
+        if len(self.cleaned_map_history) == 0:
+            print("No cleaned map files found in the current directory.")
         # if os.path.exists("slam_logs/poses.csv"):
         #     self.poses = np.loadtxt("slam_logs/poses.csv", delimiter=",")
         # else:
@@ -115,13 +119,16 @@ class WorldMapWidget(QtWidgets.QWidget):
         #     print("No target file found.")
         self.compute_global_gain_range()
         
-    def load_map_history(self):
-        files = glob.glob(f"slam_logs/map_*.npy")
+    def load_map_history(self, name):
+        files = glob.glob(f"slam_logs/{name}0*.npy")
 
         # Sort numerically by index
-        files.sort(key=lambda f: int(re.findall(r"map_(\d+)\.npy", f)[0]))
-        print(f"Found {len(files)} map files.")
-        map_history = [np.load(f) for f in files]
+        if (files):
+            files.sort(key=lambda f: int(re.findall(rf"{name}(\d+)\.npy", f)[0]))
+            print(f"Found {len(files)} map files.")
+            map_history = [np.load(f) for f in files]
+        else:
+            map_history = []
         return map_history
 
     def load_cluster_history(self):
@@ -177,8 +184,12 @@ class WorldMapWidget(QtWidgets.QWidget):
         #     x, y, th = self.poses
         # else:
         x, y, th = self.poses[self.index]
+
+        if not self.show_clean_map:
+            self._map = self.map_history[self.index]
+        else:
+            self._map = self.cleaned_map_history[self.index]
             
-        self._map = self.map_history[self.index]
         # print(f"No of Clusters: {len(self.cluster_history[self.index]) if len(self.cluster_history) > self.index else 'N/A'}")
        
         # scan_mm = self.scans[self.index]
@@ -242,16 +253,17 @@ class WorldMapWidget(QtWidgets.QWidget):
             self.update_view()
         elif event.key() == QtCore.Qt.Key_Left:
                 if self.index == 0:
-                    self.index = len(self.map_history) - 1
+                    max_index = len(self.map_history) - 1 if self.map_history else 0       
+                    self.index = max(0, max_index)
                 else:
                     self.index = max(0, self.index - 1)
                 self.timer.stop()
                 self.update_view()
         elif event.key() == QtCore.Qt.Key_Right:
-            if self.index == len(self.map_history) - 1:
+            min_index = len(self.map_history) - 1 if self.map_history else 0       
+            if self.index == min_index:
                 self.index = 0
             else:
-                min_index = len(self.map_history) - 1 if self.map_history else 0       
                 self.index = min(min_index, self.index + 1)
             self.timer.stop()
             self.update_view()
@@ -260,13 +272,13 @@ class WorldMapWidget(QtWidgets.QWidget):
             self.update_view()
         elif event.key() == QtCore.Qt.Key_O:
             self.show_ultrasonic = not self.show_ultrasonic
-            self.update()        
+            self.update_view()        
         elif event.key() == QtCore.Qt.Key_C:
-            self.show_candidates = not self.show_candidates
-            self.update()        
+            self.show_clean_map = not self.show_clean_map
+            self.update_view()        
         elif event.key() == QtCore.Qt.Key_T:
-            self.show_target = not self.show_target
-            self.update()        
+            self.show_targets = not self.show_targets
+            self.update_view()        
         else:
             super().keyPressEvent(event)  # Pass to parent for default handling
         
@@ -328,7 +340,7 @@ class WorldMapWidget(QtWidgets.QWidget):
         return QColor(r, g, 0)  # red→green
 
     def draw_candidate_poses(self, painter, target_rect):
-        if not getattr(self, "show_candidates", False):
+        if not getattr(self, "show_targets", False):
             return
 
         if len(self.candidate_target_history) < self.index:            
@@ -356,7 +368,7 @@ class WorldMapWidget(QtWidgets.QWidget):
 
     def draw_hover_candidate(self, painter, target_rect):
         if not self.mouse_pos or  \
-            not getattr(self, "show_candidates", False) or \
+            not getattr(self, "show_targets", False) or \
             len(self.candidate_target_history) < self.index:
             return False
 
@@ -422,7 +434,7 @@ class WorldMapWidget(QtWidgets.QWidget):
 
 
     def draw_chosen_target(self, painter, target_rect):
-        if not getattr(self, "show_target", False):
+        if not getattr(self, "show_targets", False):
             return
         
         if len(self.target_history) > self.index:
@@ -674,7 +686,7 @@ class WorldMapWidget(QtWidgets.QWidget):
         )
 
     def draw_gain_legend(self, painter, target_rect):
-        if not getattr(self, "show_candidates", False):
+        if not getattr(self, "show_targets", False):
             return
 
         if len(self.candidate_target_history) == 0:            
@@ -775,7 +787,7 @@ class WorldMapWidget(QtWidgets.QWidget):
         painter.setPen(QColor(255, 255, 0))
         painter.drawText(
             QPointF(target_rect.left() + 10, target_rect.top() + 20),
-            f"Index {self.index} at {timestamp.strftime('%d/%m/%y %H:%M:%S')}"
+            f"Index {self.index} at {timestamp.strftime('%d/%m/%y %H:%M:%S')} Showing {'cleaned' if self.show_clean_map else 'raw'} Map"
         )
         painter.drawText(
             QPointF(target_rect.left() + 10, target_rect.top() + 40),
@@ -787,7 +799,7 @@ class WorldMapWidget(QtWidgets.QWidget):
         painter.drawText(
             QPointF(target_rect.left() + 10, target_rect.top() + 80),
             # f"ICP score: {slam_scores[0]:0.4f}, Local reloc {slam_scores[1]:0.4f}, Global reloc {slam_scores[2]:0.4f}"
-            f"ICP score: {slam_scores[0]:0.4f}, Global Coarse {slam_scores[2]:0.4f}, Med {slam_scores[3]:0.4f}, Fine {slam_scores[4]:0.4f}"
+            f"ICP score: {slam_scores[0]:0.4f}, Global Coarse {slam_scores[1]:0.4f}, Global Coarse retry: {slam_scores[2]:0.4f}, Med {slam_scores[3]:0.4f}, Fine {slam_scores[4]:0.4f}"
         )
         
 
@@ -942,7 +954,7 @@ class WorldMapWidget(QtWidgets.QWidget):
         # top = widget_rect.top() + (widget_rect.height() - draw_h) / 2
         # target_rect = QtCore.QRectF(left, top, draw_w, draw_h)
 
-        # Draw global map
+        # Draw global map (which may be the cleaned up one)
         painter.drawImage(target_rect, self._map_image)
 
         # Draw the scale grid

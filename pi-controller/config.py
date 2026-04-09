@@ -181,6 +181,7 @@ L_MIN = -4.0
 L_MAX = +4.0
 
 occ_threshold = 0.7
+free_threshold = 0.35
 
 def is_free(I):
     p = I/255
