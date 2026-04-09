@@ -187,7 +187,7 @@ class Explorer:
         return False
 
     def score_pose(self, px, py, robot_x, robot_y, info_gain,
-               w_ig=1.0, w_dist=0.5):
+               w_ig=1.0, w_dist=0.3):
         dist = math.dist((px, py), (robot_x, robot_y))
         return w_ig * info_gain - w_dist * dist
 
@@ -230,8 +230,12 @@ class Explorer:
                 gain += 1
         return gain
     
-    def choose_next_best_view(self, grid, robot_x, robot_y, max_range=2000):
-        distance = [0.6, 0.8, 1.0]
+    def choose_next_best_view(self, grid, robot_x, robot_y, map_updated, max_range=2000):
+        if map_updated:
+            distance = [0.3, 0.6, 0.9]
+        else:
+            #If we havent updated the map, then keep any movement small until we find where we are
+            distance = [0.2, 0.3]
         best_pose = None
         poses = []
         gains = {}
@@ -254,17 +258,17 @@ class Explorer:
                 gains[(px, py)] = self.compute_information_gain(grid, px, py, max_range)
 
             # 4) score and pick best
-            best_pose = None
-            best_score = -1e9
-            for (px, py) in f_poses:
-                s = self.score_pose(px, py, robot_x, robot_y, gains[(px, py)])
-                if s > best_score:
-                    best_score = s
-                    best_pose = (px, py)
-            if best_score > 10:
-                # This one is worthwhile, otherwise increase distance
-                print(f"Found target {px:.0f},{py:.0f} with score of {best_score}")
-                break
+        best_pose = None
+        best_score = -1e9
+        for (px, py) in poses:
+            # s = self.score_pose(px, py, robot_x, robot_y, gains[(px, py)])
+            s = gains[(px, py)]
+            if s > best_score:
+                best_score = s
+                best_pose = (px, py)
+            # if best_score > 10:
+            #     # This one is worthwhile, otherwise increase distance
+            #     print(f"Found target {px:.0f},{py:.0f} with score of {best_score}")
 
         # print(f"Filtered Poses: {poses} have gains {gains}")
         return best_pose, [(p, gains[p]) for p in poses]
@@ -276,7 +280,7 @@ class ExplorationManager:
         self.slam : ICP_SLAM = slam
         self.resolution_m = config.map_resolution_m
         self.map_pixels = int(self.map_size_m / self.resolution_m) 
-        print(f"Explorer map pixels {self.map_pixels}")
+        # print(f"Explorer map pixels {self.map_pixels}")
 
         self.veto = MoveVeto(slam, self.resolution_m)
         self.explorer = Explorer(slam, self.map_pixels, self.resolution_m)
@@ -297,7 +301,7 @@ class ExplorationManager:
     # Main API: robot requests next move
     # ---------------------------------------------------------
     
-    def get_next_move(self):
+    def get_next_move(self, map_updated):
         
         """
         Returns a single next move:
@@ -309,7 +313,7 @@ class ExplorationManager:
         occ_img = self.slam.get_map()
         robot_x_mm, robot_y_mm, robot_theta = self.slam.get_pose()
 
-        self.target, self.candidate_targets = self.explorer.choose_next_best_view(occ_img, robot_x_mm, robot_y_mm)
+        self.target, self.candidate_targets = self.explorer.choose_next_best_view(occ_img, robot_x_mm, robot_y_mm, map_updated)
 
         next_move = None
         # ------------------------------------------------------------
