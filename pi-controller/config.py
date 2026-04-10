@@ -173,6 +173,7 @@ map_size = 12.0
 map_resolution_m = 0.02
 robot_radius_m = 0.1
 robot_radius_cells = int(robot_radius_m / map_resolution_m)
+good_dist_m = 0.15   # 15 cm
 
 # Log-odds parameters 
 L_FREE = -0.4

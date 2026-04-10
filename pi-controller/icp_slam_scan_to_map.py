@@ -89,6 +89,7 @@ class ICP_SLAM:
         self.avg_move_heading_deg = 0  # Initialize average move heading degree
         self.distance_moved_mm = 0  # Initialize distance moved
         self.move_confidence = 0.0  # Initialize move confidence
+        self.slam_scores = [0, 0, 0, 0, 0]
         
     
     def clean_logodds(self, logodds):
@@ -98,8 +99,9 @@ class ICP_SLAM:
         # unknown = ~(occ | free)
 
         # occ_clean = binary_dilation(occ_clean, iterations=1)        
-        # occ_clean = binary_closing(occ_clean, structure=np.ones((3,3)))
-        # occ_clean = binary_dilation(occ_clean, iterations=1)        
+        occ = binary_dilation(occ, iterations=1)        
+        occ = binary_closing(occ, structure=np.ones((2,2)))
+        # occ = binary_dilation(occ, iterations=1)        
     
         dist = distance_transform_edt(~occ)
         dist_free = distance_transform_edt(occ)
@@ -188,11 +190,15 @@ class ICP_SLAM:
     # Robot frame → world frame (mm)
     # ---------------------------------------------------------
     def transform_points_world(self, pts, x_mm, y_mm, theta):
-        c = math.cos(theta)
-        s = math.sin(theta)
-        wx = x_mm + (c * pts[:, 0] - s * pts[:, 1])
-        wy = y_mm + (s * pts[:, 0] + c * pts[:, 1])
-        return wx, wy
+        c = np.cos(theta)
+        s = np.sin(theta)
+
+        lx = pts[:, 0]
+        ly = pts[:, 1]
+
+        gx_mm = x_mm + c * lx - s * ly
+        gy_mm = y_mm + s * lx + c * ly        
+        return gx_mm, gy_mm
 
     # ------------------------------------------------------------
     # Scan scoring using distance field
@@ -234,7 +240,7 @@ class ICP_SLAM:
         free_x = []
         free_y = []
         for pts in self.scans_mm_stationary:
-            # pts are in robot frame (x=forward, y=right)
+            # pts are in robotn frame (x=forward, y=right)
             # local map is also robot-centric: no global pose, no theta
             lx = pts[:, 0] / cell_mm
             ly = pts[:, 1] / cell_mm
@@ -421,7 +427,7 @@ class ICP_SLAM:
         # Extract occupied cells
         local_map.L = np.clip(local_map.L, -10.0, +10.0)
         prob_local = 1.0 / (1.0 + np.exp(-local_map.L))
-        occ_mask_local = prob_local >= 0.7
+        occ_mask_local = prob_local >= config.occ_threshold
         occ_indices = np.argwhere(occ_mask_local)
 
         if occ_indices.shape[0] == 0:
@@ -930,6 +936,34 @@ class ICP_SLAM:
         ly = (cy - ys) * cell_mm
         return np.column_stack((lx, ly))
 
+    def calculate_pose_confidence(self, local_pts_mm, pose_guess):
+        # We are a little bit lost now - check if we are in a new area and the overlap with the old map is small
+        x_mm, y_mm, th = pose_guess
+        gx_mm, gy_mm = self.transform_points_world(local_pts_mm, x_mm, y_mm, th)
+
+        cell_mm = self.resolution_m * 1000.0
+        gx = (gx_mm / cell_mm).astype(int)
+        gy = (gy_mm / cell_mm).astype(int)
+
+        H, W = self.dist_field.shape
+        valid = (gx >= 0) & (gx < W) & (gy >= 0) & (gy < H)
+        gxv = gx[valid]
+        gyv = gy[valid]
+
+        df_vals = self.dist_field[gyv, gxv]   # units: metres
+        good_mask = df_vals < config.good_dist_m
+        overlap_ratio = np.mean(good_mask)
+        mean_dist_m = np.mean(df_vals)
+        # Overlap term: 0 at 0.1, 1 at 0.7+
+        o = np.clip((overlap_ratio - 0.1) / (0.7 - 0.1), 0.0, 1.0)
+
+        # Distance term: 1 at 50mm, 0 at 400mm+
+        d = np.clip((4.0 - mean_dist_m) / (4.0 - 0.05), 0.0, 1.0)
+        
+        # Combine (geometric mean is harsher than average)
+        confidence_val = float(np.sqrt(o * d))
+        return confidence_val
+        
     def refine_pose_with_micro_map_and_merge(self, heading_deg, avg_move_heading_deg, distance_mm, confidence, has_reset):
         """
         Full stationary refinement pipeline:
@@ -966,6 +1000,7 @@ class ICP_SLAM:
         # print("Number of scans in stationary buffer:", len(self.scans_mm_stationary))
         
         self.slam_scores = [0, 0, 0, 0, 0]
+        relocalise_fail = False
         if not self.first_ever_scan:
             merged_pts = self.merge_scans(self.scans_mm_stationary)
             
@@ -980,15 +1015,14 @@ class ICP_SLAM:
 
             x_pred = self.x + dx
             y_pred = self.y + dy
-            pose_guess = (x_pred, y_pred, self.theta)
+            pose_from_odometer = (x_pred, y_pred, self.theta)
 
             # ------------------------------------------------------------
             # 2. ICP refinement + fallback relocalisation
             # ------------------------------------------------------------
-            pose_seed = pose_guess
+            pose_seed = pose_from_odometer
             print(f"{datetime.now()}: 1. Pose guess from motion prior: {x_pred:.0f},{y_pred:.0f} bearing {config.map_rads_to_world(self.theta):.0f} with move confidence: {self.move_confidence}")
 
-            lost = False
             print(f"{datetime.now()}: 2(a) Performing global relocalisation with no prior")
             x_rel, y_rel, th_rel, score_coarse = self.global_relocalise(
                 merged_pts
@@ -999,60 +1033,62 @@ class ICP_SLAM:
             if score_coarse <= -0.1 or deg_diff > 25:
                 print(f"{datetime.now()}: 2(b) Retrying global relocalisation (score {score_coarse:.4f} with pose {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f})")
                 coarse_pose, score_coarse = self.relocalise_coarse_retry(
-                    merged_pts, pose_seed)
-                x_rel, y_rel, th_rel = coarse_pose
-            self.slam_scores[2] = getattr(score_coarse, "tolist", lambda: score_coarse)()
-            if score_coarse <= -0.1 or abs(th_rel - self.theta) > 25:
-                print(f"{datetime.now()}: 2(c) Trying ICP refinement as global relocalisation failed (score {score_coarse:.4f} theta {config.map_rads_to_world(th_rel):.0f}")
-                # Try ICP around motion prior
-                x_rel, y_rel, th_rel, icp_error = self.icp_scan_to_map(
-                    merged_pts,
-                    pose_guess,
-                    self.move_confidence)
-                self.slam_scores[0] = float(icp_error)
-                deg_diff = abs(math.degrees((th_rel - self.theta + math.pi) % (2 * math.pi) - math.pi))
-                if icp_error < self.icp_good_threshold and deg_diff < 25:
-                    # ICP succeeded → use it as seed
-                    print(f"{datetime.now()}: 2(d) ICP refinement of pose successful with error:", icp_error)
-                    pose_seed = (x_rel, y_rel, th_rel)
-                    print(f"{datetime.now()}: 2(e) Retrying global relocalisation (score {score_coarse:.4f} with pose {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f})")
-                    coarse_pose, score_coarse = self.relocalise_coarse_retry(
-                        merged_pts, pose_seed)
-                    x_rel, y_rel, th_rel = coarse_pose
-                    self.slam_scores[2] = getattr(score_coarse, "tolist", lambda: score_coarse)()
-                    if score_coarse <= -0.1 or abs(th_rel - self.theta) > 25:
-                        print(f"{datetime.now()}: 2(f) Global relocalisation failed again (score {score_coarse:.4f} with pose {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f})")
-                        lost = True
+                    merged_pts, pose_from_odometer)
+                self.slam_scores[2] = getattr(score_coarse, "tolist", lambda: score_coarse)()
+                if score_coarse <= -0.1 or abs(th_rel - self.theta) > 25:
+                    print(f"{datetime.now()}: 2(c) Trying ICP refinement as global relocalisation failed (score {score_coarse:.4f} theta {config.map_rads_to_world(th_rel):.0f}")
+                    # Try ICP around motion prior
+                    x_rel, y_rel, th_rel, icp_error = self.icp_scan_to_map(
+                        merged_pts,
+                        pose_from_odometer,
+                        self.move_confidence)
+                    self.slam_scores[0] = float(icp_error)
+                    deg_diff = abs(math.degrees((th_rel - self.theta + math.pi) % (2 * math.pi) - math.pi))
+                    if icp_error < self.icp_good_threshold and deg_diff < 25:
+                        # ICP succeeded → use it as seed
+                        print(f"{datetime.now()}: 2(d) ICP refinement of pose successful with error:", icp_error)
+                        pose_seed = (x_rel, y_rel, th_rel)
+                        print(f"{datetime.now()}: 2(e) Retrying global relocalisation (score {score_coarse:.4f} with pose {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f})")
+                        coarse_pose, score_coarse = self.relocalise_coarse_retry(
+                            merged_pts, pose_seed)
+                        x_rel, y_rel, th_rel = coarse_pose
+                        self.slam_scores[2] = getattr(score_coarse, "tolist", lambda: score_coarse)()
+                        if score_coarse <= -0.1 or abs(th_rel - self.theta) > 25:
+                            print(f"{datetime.now()}: 2(f) Global relocalisation failed again (score {score_coarse:.4f} with pose {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f})")
+                            relocalise_fail = True
+                        else:
+                            pose_seed = coarse_pose
+                    else:
+                        print(f"{datetime.now()}: ICP refinement failed with error {icp_error:.4f} and theta {config.map_rads_to_world(th_rel):.0f}")
+                        relocalise_fail = True
                 else:
-                    print(f"{datetime.now()}: ICP refinement failed with error {icp_error:.4f} and theta {config.map_rads_to_world(th_rel):.0f}")
-                    lost = True
-            if lost:
-                # We are a little bit lost now - let the robot move to another position and try again
-                self.x, self.y, self.theta = pose_seed
-                self.scans_mm_stationary.clear()  # Clear stored scans after processing
-                return False                                
-            # 2. Medium
-            print(f"{datetime.now()}: 3 Medium relocalisation with prior {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f}")
-            x_rel, y_rel, th_rel, score_med = self.relocalise_medium(merged_pts,(x_rel, y_rel, th_rel))
-            self.slam_scores[3] = getattr(score_med, "tolist", lambda: score_med)()
-            # 3. Fine
-            print(f"{datetime.now()}: 4 Fine relocalisation with prior {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f}")
-            x_rel, y_rel, th_rel, score_fine = self.relocalise_fine(merged_pts, (x_rel, y_rel, th_rel))                
-            pose_seed = (x_rel, y_rel, th_rel)
-            self.slam_scores[4] = getattr(score_fine, "tolist", lambda: score_fine)()
-            print(f"{datetime.now()}: 5 Relocalised position: {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f} final score: {score_fine:.4f}")
+                    pose_seed = coarse_pose
+            else:
+                pose_seed = pose_from_odometer
+            if not relocalise_fail:
+                # Coarse relocalisation passed
+                x_rel, y_rel, th_rel = pose_seed
+                # 3. Medium
+                print(f"{datetime.now()}: 3 Medium relocalisation with prior {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f}")
+                x_rel, y_rel, th_rel, score_med = self.relocalise_medium(merged_pts,(x_rel, y_rel, th_rel))
+                self.slam_scores[3] = getattr(score_med, "tolist", lambda: score_med)()
+                # 3. Fine
+                print(f"{datetime.now()}: 4 Fine relocalisation with prior {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f}")
+                x_rel, y_rel, th_rel, score_fine = self.relocalise_fine(merged_pts, (x_rel, y_rel, th_rel))                
+                pose_seed = (x_rel, y_rel, th_rel)
+                self.slam_scores[4] = getattr(score_fine, "tolist", lambda: score_fine)()
+                print(f"{datetime.now()}: 5 Relocalised position: {x_rel:.0f},{y_rel:.0f},{config.map_rads_to_world(th_rel):.0f} final score: {score_fine:.4f}")
 
             # At this point, pose_seed is our best estimate before micro-map
 
         else:
             pose_seed = (self.x, self.y, self.theta)
             print(f"{datetime.now()}: 1 & 2: First ever scan - using initial pose guess without refinement")
-            align_score = 0
             
         # ------------------------------------------------------------
         # 3. Build local micro-map from stationary scans
         # ------------------------------------------------------------
-        print(f"{datetime.now()}: 3. Building local map from this sweep's points, with pose: {pose_seed[0]:.0f},{pose_seed[1]:.0f} @ {config.map_rads_to_world(pose_seed[2]):.0f}")
+        print(f"{datetime.now()}: 6. Building local map from this sweep's points, with pose: {pose_seed[0]:.0f},{pose_seed[1]:.0f} @ {config.map_rads_to_world(pose_seed[2]):.0f}")
         local_map = self.build_local_map_from_points(
             pose_seed,
             size_m=config.map_size,
@@ -1061,36 +1097,47 @@ class ICP_SLAM:
         # ------------------------------------------------------------
         # 4. Align local micro-map to global map
         # ------------------------------------------------------------
-
+        confidence = 0
         if not self.first_ever_scan:
             local_pts_mm = self.extract_local_map_points(local_map)
-            print(f"{datetime.now()}: 4. Align local map from this sweep to global map, with pose seed: : {pose_seed[0]:.0f},{pose_seed[1]:.0f} @ {config.map_rads_to_world(pose_seed[2]):.0f}")
-            x_map, y_map, theta_map, align_score, can_use = self.align_map_pts_to_global(local_pts_mm, pose_seed)
+            confidence = self.calculate_pose_confidence(local_pts_mm, pose_seed)
+            if confidence >= 0.7:
+                print(f"{datetime.now()}: 7(a). Relocalisation pose confidence high ({confidence:.04f}) - use calc pose")
+                pose_align = pose_seed
+            elif confidence >= 0.3:
+                print(f"{datetime.now()}: 7(b). Relocalisation pose confidence med {confidence:.04f} - blending with odometer")
+                #Blend the pose guesses from the (failed) relocalisation and from the odometer
+                x_o, y_o, th_o = pose_from_odometer
+                x_a, y_a, th_a = pose_seed
+
+                # Blend translation
+                x = (1 - confidence) * x_o + confidence * x_a
+                y = (1 - confidence) * y_o + confidence * y_a
+
+                # Blend rotation (shortest path)
+                dth = (th_a - th_o + np.pi) % (2*np.pi) - np.pi
+                th = th_o + confidence * dth
+                pose_align = (x, y, th)
+            else:
+                print(f"{datetime.now()}: 7(c). Relocalisation pose confidence low {confidence:.04f} - NOT updating map")
+                self.x, self.y, self.theta = pose_from_odometer
+                self.scans_mm_stationary.clear()  # Clear stored scans after processing
+                return False
+            print(f"{datetime.now()}: 7(d). Align local map from this sweep to global map, with pose seed: : {pose_align[0]:.0f},{pose_align[1]:.0f} @ {config.map_rads_to_world(pose_align[2]):.0f}")
+            x_map, y_map, theta_map, align_score, can_use = self.align_map_pts_to_global(local_pts_mm, pose_align)
             if can_use:
                 self.x = x_map
                 self.y = y_map
                 self.theta = theta_map
             else:
                 #Couldnt align scans to the current map - reject and retry
-                print(f"{datetime.now()}: ** Scan alignment to map failed (score {align_score:.4f}) {self.x:.0f},{self.y:.0f} @ {config.map_rads_to_world(self.theta):.0f})")
+                print(f"{datetime.now()}: 7(e) Scan alignment to map failed not updating map (score {align_score:.4f}) {self.x:.0f},{self.y:.0f} @ {config.map_rads_to_world(self.theta):.0f})")
                 # Save best guess of where we are
-                self.x, self.y, self.theta = pose_seed
+                self.x, self.y, self.theta = pose_align
                 self.scans_mm_stationary.clear()  # Clear stored scans after processing
                 return False
 
 
-        # # ------------------------------------------------------------
-        # # 4. Align local micro-map to global map
-        # # ------------------------------------------------------------
-        # print(f"{datetime.now()}: 4. Aligning local map to global map")
-        # refined_pose = self.align_local_map_to_global(
-        #     local_map,
-        #     pose_seed,
-        #     trans_range_mm=200.0,
-        #     trans_step_mm=20.0,
-        #     rot_range_deg=2.0,
-        #     rot_step_deg=0.5
-        # )
         # ------------------------------------------------------------
         # 5. Merge local micro-map into global log-odds map
         # ------------------------------------------------------------
@@ -1104,6 +1151,7 @@ class ICP_SLAM:
         
         self.scans_mm_stationary.clear()  # Clear stored scans after processing
         self.first_ever_scan = False
+       
         return True
 
     def update(self, scan_mm):
