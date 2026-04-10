@@ -237,6 +237,7 @@ class Explorer:
             #If we havent updated the map, then keep any movement small until we find where we are
             distance = [0.2, 0.3]
         best_pose = None
+        pose_found = False
         poses = []
         gains = {}
         inflated_grid = self.inflate_occupancy(grid)
@@ -258,17 +259,35 @@ class Explorer:
                 gains[(px, py)] = self.compute_information_gain(grid, px, py, max_range)
 
             # 4) score and pick best
-        best_pose = None
-        best_score = -1e9
-        for (px, py) in poses:
-            # s = self.score_pose(px, py, robot_x, robot_y, gains[(px, py)])
-            s = gains[(px, py)]
-            if s > best_score:
-                best_score = s
-                best_pose = (px, py)
-            # if best_score > 10:
-            #     # This one is worthwhile, otherwise increase distance
-            #     print(f"Found target {px:.0f},{py:.0f} with score of {best_score}")
+            best_pose = None
+            if map_updated:
+                best_score = -1e9
+            else:
+                #Map wasnt updated - need to move to a target that has the smallest gain
+                # This will give a greater chance that global relocalisation of the current pose will work
+                best_score = 10000
+            for (px, py) in poses:
+                # s = self.score_pose(px, py, robot_x, robot_y, gains[(px, py)])
+                s = gains[(px, py)]
+                if map_updated and s > best_score:
+                    best_score = s
+                    best_pose = (px, py)
+                    if best_score > 10:
+                        # This one is worthwhile, otherwise increase distance
+                        pose_found = True
+                        break
+                        
+                if not map_updated and s < best_score:
+                    best_score = s
+                    best_pose = (px, py)
+                    if best_score < 5:
+                        # Stick with this one as we good chance we have been here before 
+                        # and so can determine where we are
+                        pose_found = True
+                        break
+            if pose_found:
+                # print(f"Found target {px:.0f},{py:.0f} with score of {best_score}")
+                break
 
         # print(f"Filtered Poses: {poses} have gains {gains}")
         return best_pose, [(p, gains[p]) for p in poses]
