@@ -136,7 +136,7 @@ class RobotStateMonitor:
                 map_updated = self.explorer_manager.slam.refine_pose_with_micro_map_and_merge(self.current_bearing, \
                     self.avg_moving_bearing, self.distance_travelled_since_last_sweep, \
                     self.move_confidence, self.has_reset)
-                print(f"Map updated? {map_updated}")
+                print(f"{datetime.now()}: Map updated? {map_updated}")
                 # if map_updated:
                 #Even if we havent updated the map, proceed on the best guess basis
                 #Firstly give it the obstacles from ultrasonic sweep to inform move veto
