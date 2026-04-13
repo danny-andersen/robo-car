@@ -232,10 +232,10 @@ class Explorer:
     
     def choose_next_best_view(self, grid, robot_x, robot_y, map_updated, max_range=2000):
         if map_updated:
-            distance = [0.3, 0.6, 0.9]
+            distance = [0.3, 0.6, 0.9, 1.2]
         else:
             #If we havent updated the map, then keep any movement small until we find where we are
-            distance = [0.2, 0.3]
+            distance = [0.2, 0.3, 0.4]
         best_pose = None
         pose_found = False
         poses = []
@@ -272,7 +272,7 @@ class Explorer:
                 if map_updated and s > best_score:
                     best_score = s
                     best_pose = (px, py)
-                    if best_score > 10:
+                    if best_score >= 5:
                         # This one is worthwhile, otherwise increase distance
                         pose_found = True
                         break
@@ -280,7 +280,7 @@ class Explorer:
                 if not map_updated and s < best_score:
                     best_score = s
                     best_pose = (px, py)
-                    if best_score < 5:
+                    if best_score <= 2:
                         # Stick with this one as we good chance we have been here before 
                         # and so can determine where we are
                         pose_found = True
